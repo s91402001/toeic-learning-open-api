@@ -1,7 +1,12 @@
 {
-  "version": "1.4.1",
-  "date": "2026-05-25",
+  "version": "1.5.0",
+  "date": "2026-10-22",
   "changes": [
-    "Restore gemini to fash 2.5"
+    "新增 OpenAI 供應商，可與 Gemini 自由切換",
+    "新增模型選擇與自訂模型名稱",
+    "新增 API Key 測試功能",
+    "設定視窗改為可捲動版面",
+    "OpenAI TTS（MP3）與 Gemini PCM 語音格式相容",
+    "口說練習在 OpenAI 供應商下會提示切換至 Gemini"
   ]
 }

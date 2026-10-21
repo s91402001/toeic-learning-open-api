@@ -1,6 +1,6 @@
 // Gemini API calls: text generation, TTS, exam generation, and explanations.
 
-import { state, TEXT_MODEL, TTS_MODEL } from './state.js';
+import { state, TEXT_MODEL, TTS_MODEL, VOICE_NAMES } from './state.js';
 import { DB } from './db.js';
 import { getLocaleMeta } from './i18n.js';
 import { normalizeExamOutput } from './examNormalize.js';
@@ -17,8 +17,13 @@ function parseJsonCandidateText(rawText) {
     return JSON.parse(cleaned);
 }
 
+function getEffectiveGeminiModel(fallback) {
+    return (state.selectedModel && state.selectedModel !== '__custom__' ? state.selectedModel : null) || fallback;
+}
+
 async function fetchJsonFromPrompt(model, prompt) {
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${state.apiKey}`, {
+    const effectiveModel = getEffectiveGeminiModel(model);
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${effectiveModel}:generateContent?key=${state.apiKey}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -183,10 +188,27 @@ export async function fetchExamWrongAnswerExplanations(payload) {
     return Array.isArray(result?.items) ? result.items : [];
 }
 
+const OPENAI_TO_GEMINI_VOICE = {
+    alloy: 'Kore',
+    echo: 'Puck',
+    fable: 'Charon',
+    onyx: 'Fenrir',
+    nova: 'Aoede',
+    shimmer: 'Kore'
+};
+
+function normalizeGeminiVoice(voiceName) {
+    const name = String(voiceName || '');
+    if (VOICE_NAMES.includes(name)) return name;
+    const mapped = OPENAI_TO_GEMINI_VOICE[name.toLowerCase()];
+    return mapped || VOICE_NAMES[0];
+}
+
 export async function fetchGeminiTTS(text, voiceName) {
+    const voice = normalizeGeminiVoice(voiceName);
     const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${TTS_MODEL}:generateContent?key=${state.apiKey}`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contents: [{ parts: [{ text }] }], generationConfig: { responseModalities: ["AUDIO"], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName } } } } })
+        body: JSON.stringify({ contents: [{ parts: [{ text }] }], generationConfig: { responseModalities: ["AUDIO"], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } } } } })
     });
     const data = await response.json();
     if (!response.ok || data?.error) {
