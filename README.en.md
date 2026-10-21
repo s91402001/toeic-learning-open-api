@@ -83,12 +83,13 @@ This is the key feature that helps you truly remember words:
 
 Long-press **any word** in a passage to see part of speech, IPA, Chinese meaning, and example usage. If a word is missing, tap once for **AI instant analysis**.
 
-### 🔀 Dual AI providers, switch freely
+### 🔀 Multiple AI providers, switch freely
 
-- Choose **Google Gemini** or **OpenAI** as your API provider in settings
-- Built-in list of common models (e.g. Gemini 2.5 Flash / Pro, GPT-4o mini / GPT-4o), with support for **manually entering a model name**
-- Text generation, voice playback, and mock exams work with either provider (speaking conversation currently requires Gemini)
-- A **Test API Key** button in settings lets you verify your key works right after pasting it
+- Choose **Google Gemini**, **OpenAI**, or a **custom OpenAI-compatible endpoint** (Ollama, vLLM, LM Studio, etc.)
+- Built-in model lists plus **automatic model discovery** and **manual model names**
+- Text generation, voice playback, and mock exams work with any provider (speaking conversation currently requires Gemini)
+- Custom providers offer three voice modes: external TTS server, browser speech, or disabled
+- **Test connection / Test TTS** buttons verify everything before you save
 
 ### ☁️ Google cloud backup
 
@@ -119,13 +120,60 @@ The [OpenAI API](https://platform.openai.com/api-keys) is usage-billed, but if y
 3. In the app settings, select **OpenAI** as your provider and paste the key
 4. Start learning!
 
+### Option 3: Self-hosted LLM (OpenAI-compatible, completely free)
+
+Any server exposing an OpenAI-compatible `/v1/chat/completions` works. Select **Custom (OpenAI-compatible)** in settings and enter the endpoint:
+
+| Service | Example endpoint |
+| --- | --- |
+| Ollama | `http://localhost:11434/v1` |
+| LM Studio | `http://localhost:1234/v1` |
+| vLLM | `http://localhost:8000/v1` |
+| LocalAI | `http://localhost:8080/v1` |
+
+Setup:
+
+1. Select **Custom (OpenAI-compatible)** as the provider
+2. Enter the endpoint (a bare `http://localhost:11434` gets `/v1` appended automatically)
+3. Leave the API key empty unless your server requires one
+4. Click **Fetch models** to read `/v1/models`, or choose "Other (custom)" and type a model name
+5. Pick a TTS mode and save
+
+**TTS modes**
+
+| Mode | Article playback | Sentence highlight / replay | Exam listening |
+| --- | --- | --- | --- |
+| External TTS server | MP3 from your server | ✅ (seekable progress) | ✅ |
+| Browser speech | OS voices | ✅ (sentence based, progress not seekable) | ✅ |
+| Disabled | Player hidden | ❌ | Notice shown, no playback |
+
+> Word and example-sentence pronunciation still uses the browser voice and is not affected.
+> External TTS servers should accept OpenAI voice names (`alloy`, `echo`, `fable`, `onyx`, `nova`, `shimmer`).
+
+**CORS**
+
+Your server must allow the page origin:
+
+```bash
+# Ollama (allow all while testing)
+OLLAMA_ORIGINS='*' ollama serve
+# or allow only your page origin
+OLLAMA_ORIGINS='http://localhost:8000' ollama serve
+```
+
+- **LM Studio**: enable CORS in the local server settings
+- **vLLM**: start with `--allowed-origins '["*"]'`
+- If the page is served over **HTTPS**, browsers may block `http://` LAN addresses; `http://localhost` usually works, or run the project locally
+
+> The model must reliably return JSON (passages, word cards, and exams are all JSON). Prefer models with solid instruction-following and enough context.
+
 ---
 
 ## Quick Start
 
 1. Deploy the project to a static host, or serve `index.html` with a local static server
 2. Add it to your home screen for a full-screen app experience
-3. Choose an API provider (Google Gemini or OpenAI) and configure its API key
+3. Choose an API provider (Google Gemini, OpenAI, or a custom OpenAI-compatible endpoint) and configure its API key
 4. Start learning
 
 ---
@@ -176,7 +224,7 @@ After signing in on the settings page, you can use **Back Up Now / Restore from 
 
 | Feature | Description |
 | --- | --- |
-| AI Provider Switch | Choose Google Gemini or OpenAI, with custom model name support |
+| AI Provider Switch | Choose Google Gemini, OpenAI, or a self-hosted OpenAI-compatible endpoint, with model discovery and custom model names |
 | AI Passage Generation | Instantly creates TOEIC-style passages by score and topic |
 | AI Voice Playback | Gemini / OpenAI 6 voices each, 4 speeds, sentence-level sync highlight |
 | AI Speaking Conversation | Real-time TOEIC scenario dialogue with preset/custom topics |
@@ -207,9 +255,9 @@ After signing in on the settings page, you can use **Back Up Now / Restore from 
 ## Tech Stack
 
 - **Single-file frontend architecture** (Single HTML File) - zero backend, zero dependencies
-- **Dual AI providers** - switch between Google Gemini and OpenAI, with custom model names
-- **Google Gemini 2.5 Flash / OpenAI GPT-4o mini** - text generation
-- **Google Gemini TTS / OpenAI TTS (tts-1)** - AI speech synthesis
+- **Multiple AI providers** - Google Gemini, OpenAI, and self-hosted OpenAI-compatible endpoints (Ollama / vLLM / LM Studio)
+- **Google Gemini 2.5 Flash / OpenAI GPT-4o mini / self-hosted models** - text generation
+- **Google Gemini TTS / OpenAI TTS (tts-1) / external TTS / browser speech** - AI speech synthesis
 - **IndexedDB** - local persistent storage
 - **Google Drive appDataFolder** - cloud backup
 - **SRS algorithm** - spaced repetition scheduling

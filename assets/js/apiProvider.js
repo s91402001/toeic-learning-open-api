@@ -1,11 +1,12 @@
-// Dispatch layer: routes API calls to Gemini or OpenAI based on state.provider.
+// Dispatch layer: routes API calls to Gemini or an OpenAI-compatible provider
+// (built-in OpenAI or a custom self-hosted endpoint) based on state.provider.
 
 import { state } from './state.js';
 import * as gemini from './apiGemini.js';
 import * as openai from './apiOpenAI.js';
 
 function api() {
-    return state.provider === 'openai' ? openai : gemini;
+    return state.provider === 'gemini' ? gemini : openai;
 }
 
 export function fetchGeminiText(score, customTopic) {

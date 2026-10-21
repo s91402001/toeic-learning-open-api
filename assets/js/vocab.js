@@ -370,7 +370,11 @@ export async function handleLookupSearch() {
         else renderLookupMessage(t('vocabLookupCharsInvalid'));
         return;
     }
-    const hasKey = state.provider === 'openai' ? !!state.openaiApiKey : !!state.apiKey;
+    const hasKey = state.provider === 'custom'
+        ? !!state.customApiBaseUrl
+        : state.provider === 'openai'
+            ? !!state.openaiApiKey
+            : !!state.apiKey;
     if (!hasKey) {
         alert(t('alertSetApiKeyFirst'));
         return;

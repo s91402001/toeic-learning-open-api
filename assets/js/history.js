@@ -3,6 +3,7 @@
 import { state, ICONS, VOICE_NAMES } from './state.js';
 import { DB } from './db.js';
 import { fetchGeminiTTS } from './apiProvider.js';
+import { isBrowserTtsMode, isTtsDisabled } from './browserTts.js';
 import { renderContent } from './render.js';
 import { setupAudio, setPlayerLoading } from './audioPlayer.js';
 import { t } from './i18n.js';
@@ -140,8 +141,14 @@ export function loadSession(item) {
     setPlayerLoading(true);
     if (item.audio) {
         setTimeout(() => setupAudio(item.audio), 0);
+    } else if (isBrowserTtsMode() || isTtsDisabled()) {
+        // No stored audio: browser speech reads the article on demand, and the
+        // disabled mode intentionally keeps the player hidden.
+        setPlayerLoading(false);
     } else {
-        const v = item.voice || VOICE_NAMES[Math.floor(Math.random() * VOICE_NAMES.length)];
+        const v = item.voice || (state.provider === 'gemini'
+            ? VOICE_NAMES[Math.floor(Math.random() * VOICE_NAMES.length)]
+            : 'random');
         fetchGeminiTTS(item.data.article, v)
             .then(async (b) => {
                 setupAudio(b);

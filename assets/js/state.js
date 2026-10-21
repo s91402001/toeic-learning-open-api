@@ -17,6 +17,15 @@ export const state = {
     openaiApiKey: '',
     provider: 'gemini',
     selectedModel: '',
+    customApiBaseUrl: '',
+    customApiKey: '',
+    customTtsMode: 'browser',
+    customTtsBaseUrl: '',
+    customTtsApiKey: '',
+    customTtsModel: 'tts-1',
+    customModels: [],
+    browserVoiceURI: '',
+    providerModels: { gemini: '', openai: '', custom: '' },
     targetScore: 700,
     selectedVoice: 'random',
     practiceMode: 'article',
@@ -83,6 +92,13 @@ export const GEMINI_TEXT_MODELS = [
 
 export const OPENAI_TEXT_MODEL = 'gpt-4o-mini';
 export const OPENAI_TTS_MODEL = 'tts-1';
+
+/** Provider ids accepted by the settings UI and API dispatch layer. */
+export const PROVIDER_IDS = ['gemini', 'openai', 'custom'];
+
+/** TTS behaviour available to the custom (OpenAI-compatible) provider. */
+export const CUSTOM_TTS_MODES = ['external', 'browser', 'off'];
+export const DEFAULT_CUSTOM_TTS_MODE = 'browser';
 
 export const OPENAI_TEXT_MODELS = [
     { id: 'gpt-4o-mini', labelKey: 'modelGpt4oMini' },

@@ -1,11 +1,13 @@
 // App entry point: initialisation, tab switching, event binding, module wiring.
 
-import { state, VOICE_OPTIONS, VOICE_NAMES, SPEAKING_ACCENT_OPTIONS, ICONS, GEMINI_TEXT_MODELS, OPENAI_TEXT_MODELS, OPENAI_VOICE_OPTIONS, OPENAI_VOICE_NAMES } from './state.js';
+import { state, VOICE_OPTIONS, VOICE_NAMES, SPEAKING_ACCENT_OPTIONS, ICONS, GEMINI_TEXT_MODELS, OPENAI_TEXT_MODELS, OPENAI_VOICE_OPTIONS, OPENAI_VOICE_NAMES, DEFAULT_CUSTOM_TTS_MODE } from './state.js';
 import { speakText } from './utils.js';
 import { DB } from './db.js';
 import { fetchGeminiText, fetchGeminiTTS, fetchExamQuestions, fetchExamWrongAnswerExplanations } from './apiProvider.js';
+import { fetchModelsFromEndpoint, testCustomEndpoint, testCustomTtsEndpoint, normalizeApiBaseUrl } from './apiOpenAI.js';
 import { DriveSync } from './driveSync.js';
-import { setupAudio } from './audioPlayer.js';
+import { setupAudio, setPlayerLoading, stopAllPlayback } from './audioPlayer.js';
+import { isBrowserTtsMode, isTtsDisabled, isSpeechSynthesisSupported, getBrowserVoices } from './browserTts.js';
 import { renderContent, toggleEnglish, toggleTranslation, updateToggleButtons } from './render.js';
 import { closeModal, renderVocabTab, setSrsTrigger, setVocabSubtab, handleLookupSearch } from './vocab.js';
 import { startSrsReview, closeSrsReview, finishSrsReview, setOnFinish } from './srs.js';
@@ -65,11 +67,16 @@ function updatePlayerBarVisibility() {
     const articleVisible = !learningAreaEl.classList.contains('hidden');
     const isLoadingArticleAudio = !!playBtn && playBtn.disabled;
     const hasArticleAudio = !!state.audioBlobUrl || isLoadingArticleAudio;
-    const shouldShow = activeTab === 'learn' && articleVisible && hasArticleAudio;
+    const hasBrowserSpeech = isBrowserTtsMode() && !!state.currentData;
+    const shouldShow = !isTtsDisabled()
+        && activeTab === 'learn'
+        && articleVisible
+        && (hasArticleAudio || hasBrowserSpeech);
     pb.classList.toggle('hidden', !shouldShow);
 }
 
 function clearArticleLearningContent() {
+    stopAllPlayback();
     state.currentData = null;
     state.audioReady = false;
     if (state.audioBlobUrl) {
@@ -192,13 +199,20 @@ renderSpeakingLevelSwitch();
 /* ── Voice chips ── */
 const voiceSelector = document.getElementById('voiceSelector');
 function getCurrentVoiceOptions() {
-    return state.provider === 'openai' ? OPENAI_VOICE_OPTIONS : VOICE_OPTIONS;
+    return state.provider === 'gemini' ? VOICE_OPTIONS : OPENAI_VOICE_OPTIONS;
 }
 function getCurrentVoiceNames() {
-    return state.provider === 'openai' ? OPENAI_VOICE_NAMES : VOICE_NAMES;
+    return state.provider === 'gemini' ? VOICE_NAMES : OPENAI_VOICE_NAMES;
 }
 function renderVoiceOptions() {
     if (!voiceSelector) return;
+    const hidden = state.provider === 'custom' && state.customTtsMode !== 'external';
+    const section = voiceSelector.closest('.practice-section');
+    if (section) section.classList.toggle('hidden', hidden);
+    if (hidden) {
+        voiceSelector.innerHTML = '';
+        return;
+    }
     const opts = getCurrentVoiceOptions();
     const validNames = opts.map(o => o.name);
     if (!validNames.includes(state.selectedVoice)) {
@@ -256,6 +270,7 @@ const providerSelect = document.getElementById('providerSelect');
 const modelSelect = document.getElementById('modelSelect');
 
 function getModelsForProvider(provider) {
+    if (provider === 'custom') return Array.isArray(state.customModels) ? state.customModels : [];
     return provider === 'openai' ? OPENAI_TEXT_MODELS : GEMINI_TEXT_MODELS;
 }
 
@@ -281,7 +296,7 @@ function renderModelOptions(provider) {
     models.forEach(m => {
         const opt = document.createElement('option');
         opt.value = m.id;
-        opt.textContent = t(m.labelKey);
+        opt.textContent = m.labelKey ? t(m.labelKey) : m.id;
         modelSelect.appendChild(opt);
     });
     const customOpt = document.createElement('option');
@@ -289,37 +304,96 @@ function renderModelOptions(provider) {
     customOpt.textContent = t('modelCustomLabel');
     modelSelect.appendChild(customOpt);
 
+    const customInput = document.getElementById('customModelInput');
+    if (customInput) {
+        customInput.placeholder = provider === 'custom'
+            ? 'e.g. llama3.1:8b'
+            : provider === 'openai'
+                ? 'e.g. gpt-4o-mini'
+                : 'e.g. gemini-2.5-pro-latest';
+    }
+
     const knownIds = models.map(m => m.id);
     const current = state.selectedModel;
-    if (!current) {
+    if (!models.length) {
+        modelSelect.value = CUSTOM_MODEL_VALUE;
+        if (current && customInput) customInput.value = current;
+    } else if (!current) {
         modelSelect.value = models[0].id;
         state.selectedModel = modelSelect.value;
     } else if (knownIds.includes(current)) {
         modelSelect.value = current;
-        const inp = document.getElementById('customModelInput');
-        if (inp) inp.value = '';
+        if (customInput) customInput.value = '';
     } else {
         modelSelect.value = CUSTOM_MODEL_VALUE;
-        const inp = document.getElementById('customModelInput');
-        if (inp) inp.value = current;
+        if (customInput) customInput.value = current;
     }
     syncCustomModelRow();
+}
+
+function syncCustomTtsUI() {
+    const modeSelect = document.getElementById('customTtsModeSelect');
+    const mode = modeSelect ? modeSelect.value : state.customTtsMode;
+    const externalFields = document.getElementById('customTtsExternalFields');
+    const browserRow = document.getElementById('customBrowserVoiceRow');
+    if (externalFields) externalFields.classList.toggle('hidden', mode !== 'external');
+    if (browserRow) browserRow.classList.toggle('hidden', mode !== 'browser');
 }
 
 function syncProviderKeyUI(provider) {
     const geminiSection = document.getElementById('geminiKeySection');
     const openaiSection = document.getElementById('openaiKeySection');
-    if (geminiSection) geminiSection.classList.toggle('hidden', provider === 'openai');
+    const customSection = document.getElementById('customSection');
+    const fetchModelsRow = document.getElementById('fetchModelsRow');
+    if (geminiSection) geminiSection.classList.toggle('hidden', provider !== 'gemini');
     if (openaiSection) openaiSection.classList.toggle('hidden', provider !== 'openai');
+    if (customSection) customSection.classList.toggle('hidden', provider !== 'custom');
+    if (fetchModelsRow) fetchModelsRow.classList.toggle('hidden', provider !== 'custom');
+    syncCustomTtsUI();
+}
+
+function populateBrowserVoiceSelect() {
+    const select = document.getElementById('browserVoiceSelect');
+    if (!select) return;
+    const voices = getBrowserVoices();
+    select.innerHTML = '';
+    if (!voices.length) {
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = t('settingsNoBrowserVoice');
+        select.appendChild(opt);
+        select.disabled = true;
+        return;
+    }
+    select.disabled = false;
+    const auto = document.createElement('option');
+    auto.value = '';
+    auto.textContent = t('settingsBrowserVoiceAuto');
+    select.appendChild(auto);
+    voices.forEach((voice) => {
+        const opt = document.createElement('option');
+        opt.value = voice.voiceURI;
+        opt.textContent = `${voice.name} (${voice.lang})`;
+        select.appendChild(opt);
+    });
+    select.value = voices.some((voice) => voice.voiceURI === state.browserVoiceURI)
+        ? state.browserVoiceURI
+        : '';
+}
+
+function refreshPlaybackMode() {
+    stopAllPlayback();
+    updatePlayerBarVisibility();
 }
 
 if (providerSelect) {
     providerSelect.onchange = () => {
         const p = providerSelect.value;
         if (p !== state.provider) {
-            // Model IDs are provider-specific: start from that provider's default
-            // instead of carrying a model name that belongs to the other provider.
-            state.selectedModel = '';
+            // Model IDs are provider-specific: remember the current one and
+            // restore the other provider's saved choice (or its default).
+            state.providerModels[state.provider] = state.selectedModel || '';
+            state.selectedModel = state.providerModels[p] || '';
             const inp = document.getElementById('customModelInput');
             if (inp) inp.value = '';
         }
@@ -327,6 +401,8 @@ if (providerSelect) {
         renderModelOptions(p);
         syncProviderKeyUI(p);
         renderVoiceOptions();
+        if (p === 'custom' && state.customTtsMode === 'browser') populateBrowserVoiceSelect();
+        refreshPlaybackMode();
     };
 }
 
@@ -339,6 +415,19 @@ if (modelSelect) {
             if (inp) inp.value = '';
         }
     };
+}
+
+const customTtsModeSelect = document.getElementById('customTtsModeSelect');
+if (customTtsModeSelect) {
+    customTtsModeSelect.onchange = () => {
+        state.customTtsMode = customTtsModeSelect.value || DEFAULT_CUSTOM_TTS_MODE;
+        syncCustomTtsUI();
+        renderVoiceOptions();
+    };
+}
+
+if (isSpeechSynthesisSupported() && typeof window.speechSynthesis?.addEventListener === 'function') {
+    window.speechSynthesis.addEventListener('voiceschanged', populateBrowserVoiceSelect);
 }
 
 function populateLocaleSelector() {
@@ -389,6 +478,20 @@ async function persistLocaleSelection(locale) {
     await DB.setSetting('app_locale_history', list.slice(0, 30));
 }
 
+function readModelFromForm() {
+    const raw = modelSelect ? modelSelect.value : state.selectedModel;
+    if (raw === CUSTOM_MODEL_VALUE) {
+        return document.getElementById('customModelInput')?.value.trim() || '';
+    }
+    return raw || '';
+}
+
+function hasActiveProviderConfig() {
+    if (state.provider === 'custom') return !!normalizeApiBaseUrl(state.customApiBaseUrl);
+    if (state.provider === 'openai') return !!state.openaiApiKey;
+    return !!state.apiKey;
+}
+
 document.getElementById('btnSettings').onclick = () => {
     document.getElementById('apiKeyInput').value = state.apiKey;
     const btnClearApiKey = document.getElementById('btnClearApiKey');
@@ -397,11 +500,28 @@ document.getElementById('btnSettings').onclick = () => {
     if (openaiInput) openaiInput.value = state.openaiApiKey;
     const btnClearOpenAI = document.getElementById('btnClearOpenAIApiKey');
     if (btnClearOpenAI) btnClearOpenAI.classList.toggle('hidden', !state.openaiApiKey);
+    const customUrlInput = document.getElementById('customApiBaseUrlInput');
+    if (customUrlInput) customUrlInput.value = state.customApiBaseUrl;
+    const customKeyInput = document.getElementById('customApiKeyInput');
+    if (customKeyInput) customKeyInput.value = state.customApiKey;
+    const ttsBaseInput = document.getElementById('customTtsBaseUrlInput');
+    if (ttsBaseInput) ttsBaseInput.value = state.customTtsBaseUrl;
+    const ttsKeyInput = document.getElementById('customTtsApiKeyInput');
+    if (ttsKeyInput) ttsKeyInput.value = state.customTtsApiKey;
+    const ttsModelInput = document.getElementById('customTtsModelInput');
+    if (ttsModelInput) ttsModelInput.value = state.customTtsModel;
+    if (customTtsModeSelect) customTtsModeSelect.value = state.customTtsMode;
+    const modelsStatus = document.getElementById('customModelsStatus');
+    if (modelsStatus) modelsStatus.style.display = 'none';
+    const ttsStatus = document.getElementById('apiTtsTestResult');
+    if (ttsStatus) ttsStatus.style.display = 'none';
+    const apiStatus = document.getElementById('apiTestResult');
+    if (apiStatus) apiStatus.style.display = 'none';
     if (providerSelect) providerSelect.value = state.provider;
     renderModelOptions(state.provider);
     syncProviderKeyUI(state.provider);
-    const hasActiveKey = state.provider === 'openai' ? !!state.openaiApiKey : !!state.apiKey;
-    document.getElementById('btnCloseKeyModal').style.display = hasActiveKey ? 'flex' : 'none';
+    populateBrowserVoiceSelect();
+    document.getElementById('btnCloseKeyModal').style.display = hasActiveProviderConfig() ? 'flex' : 'none';
     if (localeSelect) localeSelect.value = getLocale();
     DriveSync.updateUI();
     keyModal.classList.add('active');
@@ -412,26 +532,62 @@ async function saveApiKey() {
     const openaiInput = document.getElementById('openaiApiKeyInput');
     const openaiVal = openaiInput ? openaiInput.value.trim() : '';
     const providerVal = providerSelect ? providerSelect.value : state.provider;
-    const rawModelVal = modelSelect ? modelSelect.value : state.selectedModel;
-    const customModelInp = document.getElementById('customModelInput');
-    const modelVal = rawModelVal === CUSTOM_MODEL_VALUE
-        ? (customModelInp?.value.trim() || '')
-        : rawModelVal;
+    const modelVal = readModelFromForm();
+    const customUrlVal = normalizeApiBaseUrl(document.getElementById('customApiBaseUrlInput')?.value || '');
+    const customKeyVal = document.getElementById('customApiKeyInput')?.value.trim() || '';
+    const ttsModeVal = customTtsModeSelect?.value || state.customTtsMode || DEFAULT_CUSTOM_TTS_MODE;
+    const ttsBaseVal = normalizeApiBaseUrl(document.getElementById('customTtsBaseUrlInput')?.value || '');
+    const ttsKeyVal = document.getElementById('customTtsApiKeyInput')?.value.trim() || '';
+    const ttsModelVal = document.getElementById('customTtsModelInput')?.value.trim() || 'tts-1';
+    const browserVoiceVal = document.getElementById('browserVoiceSelect')?.value || '';
+    const rawCustomUrl = document.getElementById('customApiBaseUrlInput')?.value.trim() || '';
+
+    if (providerVal === 'custom') {
+        if (!customUrlVal) {
+            alert(t('customEndpointRequired'));
+            return;
+        }
+        if (!modelVal) {
+            alert(t('customModelRequired'));
+            return;
+        }
+        if (ttsModeVal === 'external' && !ttsBaseVal) {
+            alert(t('settingsTtsEndpointRequired'));
+            return;
+        }
+    }
 
     state.apiKey = geminiVal;
     state.openaiApiKey = openaiVal;
     state.provider = providerVal;
     state.selectedModel = modelVal;
+    state.customApiBaseUrl = rawCustomUrl ? customUrlVal : '';
+    state.customApiKey = customKeyVal;
+    state.customTtsMode = ttsModeVal;
+    state.customTtsBaseUrl = ttsBaseVal;
+    state.customTtsApiKey = ttsKeyVal;
+    state.customTtsModel = ttsModelVal;
+    state.browserVoiceURI = browserVoiceVal;
+    state.providerModels[providerVal] = modelVal;
 
     await DB.setSetting('gemini_api_key', geminiVal || null);
     await DB.setSetting('openai_api_key', openaiVal || null);
     await DB.setSetting('selected_provider', providerVal);
     await DB.setSetting('selected_model', modelVal || null);
+    await DB.setSetting('custom_api_base_url', state.customApiBaseUrl || null);
+    await DB.setSetting('custom_api_key', customKeyVal || null);
+    await DB.setSetting('custom_tts_mode', state.customTtsMode);
+    await DB.setSetting('custom_tts_base_url', ttsBaseVal || null);
+    await DB.setSetting('custom_tts_api_key', ttsKeyVal || null);
+    await DB.setSetting('custom_tts_model', ttsModelVal || null);
+    await DB.setSetting('custom_models', state.customModels);
+    await DB.setSetting('provider_models', { ...state.providerModels });
+    await DB.setSetting('browser_voice_uri', browserVoiceVal || null);
 
-    const hasActiveKey = providerVal === 'openai' ? !!openaiVal : !!geminiVal;
-    document.getElementById('btnCloseKeyModal').style.display = hasActiveKey ? 'flex' : 'none';
+    document.getElementById('btnCloseKeyModal').style.display = hasActiveProviderConfig() ? 'flex' : 'none';
     keyModal.classList.remove('active');
     renderVoiceOptions();
+    refreshPlaybackMode();
 }
 
 function setAppVersionText(text) {
@@ -751,27 +907,109 @@ function showTestResult(ok, message) {
     apiTestResult.textContent = message;
 }
 
+function showModelsStatus(ok, message) {
+    const el = document.getElementById('customModelsStatus');
+    if (!el) return;
+    el.style.display = 'block';
+    el.style.color = ok ? 'var(--success-text, #065f46)' : 'var(--error-text, #991b1b)';
+    el.textContent = message;
+}
+
+function showTtsTestResult(ok, message) {
+    const el = document.getElementById('apiTtsTestResult');
+    if (!el) return;
+    el.style.display = 'block';
+    el.style.background = ok ? 'var(--success-bg, #d1fae5)' : 'var(--error-bg, #fee2e2)';
+    el.style.color = ok ? 'var(--success-text, #065f46)' : 'var(--error-text, #991b1b)';
+    el.style.border = `1px solid ${ok ? 'var(--success-border, #6ee7b7)' : 'var(--error-border, #fca5a5)'}`;
+    el.textContent = message;
+}
+
+async function fetchCustomModels() {
+    const btn = document.getElementById('btnFetchCustomModels');
+    const baseUrl = normalizeApiBaseUrl(document.getElementById('customApiBaseUrlInput')?.value || '');
+    const apiKey = document.getElementById('customApiKeyInput')?.value.trim() || '';
+    if (!baseUrl) {
+        showModelsStatus(false, t('customEndpointRequired'));
+        return;
+    }
+    const original = btn ? btn.textContent : '';
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = t('settingsFetchingModels');
+    }
+    showModelsStatus(true, '');
+    try {
+        const ids = await fetchModelsFromEndpoint({ baseUrl, apiKey });
+        state.customModels = ids.map((id) => ({ id }));
+        await DB.setSetting('custom_models', state.customModels);
+        renderModelOptions('custom');
+        showModelsStatus(true, t('settingsModelsFetched', { count: ids.length }));
+    } catch (error) {
+        showModelsStatus(false, t('settingsModelsFailed', { message: error.message }));
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = original || t('settingsFetchModels');
+        }
+    }
+}
+
+async function testCustomTts() {
+    const btn = document.getElementById('btnTestCustomTts');
+    const baseUrl = normalizeApiBaseUrl(document.getElementById('customTtsBaseUrlInput')?.value || '');
+    const apiKey = document.getElementById('customTtsApiKeyInput')?.value.trim() || '';
+    const model = document.getElementById('customTtsModelInput')?.value.trim() || 'tts-1';
+    if (!baseUrl) {
+        showTtsTestResult(false, t('settingsTtsEndpointRequired'));
+        return;
+    }
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = t('settingsTestTtsTesting');
+    }
+    try {
+        await testCustomTtsEndpoint({ baseUrl, apiKey, model });
+        showTtsTestResult(true, t('settingsTestTtsSuccess'));
+    } catch (error) {
+        showTtsTestResult(false, t('settingsTestTtsFailed', { message: error.message }));
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = t('settingsTestTts');
+        }
+    }
+}
+
 async function testApiKey() {
     if (!btnTestApiKey) return;
     const provider = providerSelect ? providerSelect.value : state.provider;
     const geminiKey = document.getElementById('apiKeyInput')?.value.trim();
     const openaiKey = document.getElementById('openaiApiKeyInput')?.value.trim();
-    const rawModel = modelSelect?.value;
-    const customInp = document.getElementById('customModelInput');
-    const model = rawModel === CUSTOM_MODEL_VALUE
-        ? (customInp?.value.trim() || '')
-        : (rawModel || '');
+    const customKey = document.getElementById('customApiKeyInput')?.value.trim() || '';
+    const customUrl = document.getElementById('customApiBaseUrlInput')?.value.trim() || '';
+    const model = readModelFromForm();
 
-    const key = provider === 'openai' ? openaiKey : geminiKey;
-    if (!key) {
-        showTestResult(false, t('settingsTestNoKey'));
-        return;
-    }
     btnTestApiKey.disabled = true;
     btnTestApiKey.textContent = t('settingsTestTesting');
     if (apiTestResult) apiTestResult.style.display = 'none';
 
     try {
+        if (provider === 'custom') {
+            const baseUrl = normalizeApiBaseUrl(customUrl);
+            if (!baseUrl) throw new Error(t('customEndpointRequired'));
+            if (!model) throw new Error(t('customModelRequired'));
+            await testCustomEndpoint({ baseUrl, apiKey: customKey, model });
+            showTestResult(true, t('settingsTestConnectionSuccess'));
+            return;
+        }
+
+        const key = provider === 'openai' ? openaiKey : geminiKey;
+        if (!key) {
+            showTestResult(false, t('settingsTestNoKey'));
+            return;
+        }
+
         if (provider === 'openai') {
             const res = await fetch('https://api.openai.com/v1/models', {
                 headers: { 'Authorization': `Bearer ${key}` }
@@ -801,6 +1039,10 @@ async function testApiKey() {
 }
 
 if (btnTestApiKey) btnTestApiKey.onclick = testApiKey;
+const btnFetchCustomModels = document.getElementById('btnFetchCustomModels');
+if (btnFetchCustomModels) btnFetchCustomModels.onclick = fetchCustomModels;
+const btnTestCustomTts = document.getElementById('btnTestCustomTts');
+if (btnTestCustomTts) btnTestCustomTts.onclick = testCustomTts;
 
 if (localeSelect) {
     localeSelect.onchange = async (event) => {
@@ -1141,7 +1383,9 @@ EXAM_CONTENT.onclick = async (e) => {
                     explanationsOverride: state.examState.explanations || null
                 });
             }
-            if (result?.fallbackUsed) {
+            if (result?.disabled || result?.browserUsed) {
+                if (result.message) EXAM_META.textContent = result.message;
+            } else if (result?.fallbackUsed) {
                 EXAM_META.textContent = t('examFallbackTtsBusy');
             }
         } catch (error) {
@@ -1158,7 +1402,7 @@ document.getElementById('btnExamBack').onclick = () => viewShowExamConfig(setLea
 const GENERATE_BTN = document.getElementById('btnGenerate');
 
 function hasActiveApiKey() {
-    return state.provider === 'openai' ? !!state.openaiApiKey : !!state.apiKey;
+    return hasActiveProviderConfig();
 }
 
 GENERATE_BTN.onclick = async () => {
@@ -1176,16 +1420,29 @@ GENERATE_BTN.onclick = async () => {
         }
         state.currentData = contentData;
 
-        const voicePool = getCurrentVoiceNames();
-        const voiceName = state.selectedVoice === 'random'
-            ? voicePool[Math.floor(Math.random() * voicePool.length)]
-            : state.selectedVoice;
-        state.lastUsedVoice = voiceName;
+        const browserMode = isBrowserTtsMode();
+        const ttsOff = isTtsDisabled();
+        let voiceName = null;
+        let audioBase64 = null;
+
+        if (!browserMode && !ttsOff) {
+            const voicePool = getCurrentVoiceNames();
+            voiceName = state.selectedVoice === 'random'
+                ? voicePool[Math.floor(Math.random() * voicePool.length)]
+                : state.selectedVoice;
+            state.lastUsedVoice = voiceName;
+        } else {
+            state.lastUsedVoice = null;
+        }
 
         renderContent(contentData, voiceName);
         setLearnRuntimeMode('article');
-        const audioBase64 = await fetchGeminiTTS(contentData.article, voiceName);
-        setupAudio(audioBase64);
+        if (browserMode || ttsOff) {
+            setPlayerLoading(false);
+        } else {
+            audioBase64 = await fetchGeminiTTS(contentData.article, voiceName);
+            setupAudio(audioBase64);
+        }
         const articleRecord = await saveToHistory(contentData, audioBase64, voiceName, customTopic);
         markLearnRecord(articleRecord?.id ? { id: articleRecord.id, type: 'article', fromHistory: false } : null);
         switchTab('learn');
@@ -1220,14 +1477,41 @@ GENERATE_BTN.onclick = async () => {
         if (apiKey) state.apiKey = apiKey;
         const openaiKey = await DB.getSetting('openai_api_key');
         if (openaiKey) state.openaiApiKey = openaiKey;
+
+        const customBase = await DB.getSetting('custom_api_base_url');
+        if (customBase) state.customApiBaseUrl = customBase;
+        const customKey = await DB.getSetting('custom_api_key');
+        if (customKey) state.customApiKey = customKey;
+        const customTtsMode = await DB.getSetting('custom_tts_mode');
+        if (['external', 'browser', 'off'].includes(customTtsMode)) state.customTtsMode = customTtsMode;
+        const customTtsBase = await DB.getSetting('custom_tts_base_url');
+        if (customTtsBase) state.customTtsBaseUrl = customTtsBase;
+        const customTtsKey = await DB.getSetting('custom_tts_api_key');
+        if (customTtsKey) state.customTtsApiKey = customTtsKey;
+        const customTtsModel = await DB.getSetting('custom_tts_model');
+        if (customTtsModel) state.customTtsModel = customTtsModel;
+        const customModels = await DB.getSetting('custom_models');
+        if (Array.isArray(customModels)) {
+            state.customModels = customModels
+                .map((item) => ({ id: String(item?.id || item || '') }))
+                .filter((item) => item.id);
+        }
+        const browserVoiceURI = await DB.getSetting('browser_voice_uri');
+        if (browserVoiceURI) state.browserVoiceURI = browserVoiceURI;
+
         const savedProvider = await DB.getSetting('selected_provider');
-        if (savedProvider) state.provider = savedProvider;
+        if (['gemini', 'openai', 'custom'].includes(savedProvider)) state.provider = savedProvider;
+        const savedModels = await DB.getSetting('provider_models');
+        if (savedModels && typeof savedModels === 'object') {
+            state.providerModels = { ...state.providerModels, ...savedModels };
+        }
         const savedModel = await DB.getSetting('selected_model');
-        if (savedModel) state.selectedModel = savedModel;
-        const hasActiveKey = state.provider === 'openai' ? !!state.openaiApiKey : !!state.apiKey;
-        if (!hasActiveKey) keyModal.classList.add('active');
+        state.selectedModel = state.providerModels[state.provider] || savedModel || '';
+
+        if (!hasActiveProviderConfig()) keyModal.classList.add('active');
         renderModelOptions(state.provider);
         syncProviderKeyUI(state.provider);
+        populateBrowserVoiceSelect();
         renderVoiceOptions();
         renderHistory();
         await loadLastSession();

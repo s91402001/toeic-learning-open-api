@@ -494,6 +494,14 @@ h1 { font-size: 20px; margin: 0; font-weight: 700; color: var(--primary); }
     margin-bottom: 10px;
 }
 .exam-question-title { font-weight: 600; margin-bottom: 8px; line-height: 1.4; }
+.exam-tts-note {
+    font-size: 12px;
+    color: var(--text-sub);
+    background: #f2f2f7;
+    border-radius: 8px;
+    padding: 8px 10px;
+    margin-bottom: 8px;
+}
 .exam-passage {
     background: #fafafe;
     border: 1px solid #ececff;

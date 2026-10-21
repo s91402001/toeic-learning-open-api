@@ -407,11 +407,16 @@
                 <select id="providerSelect" class="topic-input" style="margin-bottom: 12px;">
                     <option value="gemini">Google Gemini</option>
                     <option value="openai">OpenAI</option>
+                    <option value="custom" data-i18n="providerCustomLabel">自訂 (OpenAI 相容)</option>
                 </select>
                 <h3 class="practice-label settings-label-center" data-i18n="settingsModelLabel">模型</h3>
                 <select id="modelSelect" class="topic-input" style="margin-bottom: 8px;"></select>
                 <div id="customModelRow" class="hidden" style="margin-bottom: 20px;">
                     <input type="text" id="customModelInput" class="topic-input" style="width:100%; box-sizing:border-box;" placeholder="e.g. gemini-2.5-pro-latest">
+                </div>
+                <div id="fetchModelsRow" class="hidden" style="margin-bottom: 20px;">
+                    <button type="button" id="btnFetchCustomModels" class="wm-btn secondary" style="width:100%;" data-i18n="settingsFetchModels">取得模型</button>
+                    <div id="customModelsStatus" style="display:none; font-size:12px; margin-top:6px; text-align:left;"></div>
                 </div>
 
                 <div id="geminiKeySection">
@@ -436,6 +441,41 @@
                         <input type="password" id="openaiApiKeyInput" style="padding-right: 32px;" placeholder="Paste OpenAI API Key here...">
                         <button type="button" id="btnClearOpenAIApiKey" class="vocab-clear-btn hidden" aria-label="Clear input">&times;</button>
                     </div>
+                </div>
+
+                <div id="customSection" class="hidden">
+                    <h3 class="practice-label settings-label-center" data-i18n="settingsCustomEndpointLabel">API Endpoint</h3>
+                    <input type="text" id="customApiBaseUrlInput" class="topic-input" style="width:100%; box-sizing:border-box;" placeholder="http://localhost:11434/v1">
+                    <p style="font-size:11px; color:#999; margin:6px 0 12px; text-align:left;" data-i18n="settingsCustomEndpointHint">例：http://localhost:11434/v1（只填 http://localhost:11434 會自動補上 /v1）</p>
+
+                    <h3 class="practice-label settings-label-center" data-i18n="settingsCustomApiKeyLabel">API Key（選填）</h3>
+                    <input type="password" id="customApiKeyInput" class="topic-input" style="width:100%; box-sizing:border-box; margin-bottom:12px;" placeholder="Optional for local servers">
+
+                    <h3 class="practice-label settings-label-center" data-i18n="settingsTtsModeLabel">語音朗讀 TTS</h3>
+                    <select id="customTtsModeSelect" class="topic-input" style="margin-bottom:12px;">
+                        <option value="external" data-i18n="ttsModeExternal">外接 TTS 伺服器</option>
+                        <option value="browser" data-i18n="ttsModeBrowser" selected>瀏覽器內建語音</option>
+                        <option value="off" data-i18n="ttsModeOff">停用朗讀</option>
+                    </select>
+
+                    <div id="customTtsExternalFields" class="hidden">
+                        <h3 class="practice-label settings-label-center" data-i18n="settingsTtsEndpointLabel">TTS Endpoint</h3>
+                        <input type="text" id="customTtsBaseUrlInput" class="topic-input" style="width:100%; box-sizing:border-box;" placeholder="http://localhost:8880/v1">
+                        <h3 class="practice-label settings-label-center" data-i18n="settingsTtsApiKeyLabel">TTS API Key（選填）</h3>
+                        <input type="password" id="customTtsApiKeyInput" class="topic-input" style="width:100%; box-sizing:border-box; margin-bottom:12px;" placeholder="Optional">
+                        <h3 class="practice-label settings-label-center" data-i18n="settingsTtsModelLabel">TTS Model</h3>
+                        <input type="text" id="customTtsModelInput" class="topic-input" style="width:100%; box-sizing:border-box; margin-bottom:12px;" value="tts-1" placeholder="tts-1">
+                        <button type="button" id="btnTestCustomTts" class="wm-btn secondary" style="width:100%;" data-i18n="settingsTestTts">測試 TTS</button>
+                        <div id="apiTtsTestResult" style="display:none; font-size:13px; padding:8px 10px; border-radius:8px; margin-top:8px;"></div>
+                    </div>
+
+                    <div id="customBrowserVoiceRow" class="hidden">
+                        <h3 class="practice-label settings-label-center" data-i18n="settingsBrowserVoiceLabel">瀏覽器語音</h3>
+                        <select id="browserVoiceSelect" class="topic-input"></select>
+                        <p style="font-size:11px; color:#999; margin:6px 0 12px; text-align:left;" data-i18n="settingsBrowserVoiceHint">使用作業系統提供的英語語音朗讀，聲音依裝置而異。</p>
+                    </div>
+
+                    <p style="font-size:11px; color:#999; margin:10px 0 0; text-align:left;" data-i18n="settingsCustomCorsNote">自架伺服器需允許 CORS；若網頁以 HTTPS 開啟，瀏覽器可能阻擋 http:// 區網位址。</p>
                 </div>
 
                 <button type="button" id="btnTestApiKey" class="wm-btn secondary" style="width:100%; margin-top:4px;" data-i18n="settingsTestApiKey">測試 API Key</button>

@@ -2,6 +2,14 @@
 
 import { state, ICONS } from './state.js';
 import { pcmToWavBlob } from './audioCodec.js';
+import { t } from './i18n.js';
+import {
+    isBrowserTtsMode,
+    isTtsDisabled,
+    isSpeechSynthesisSupported,
+    toggleArticleSpeech,
+    stopBrowserSpeech
+} from './browserTts.js';
 
 const audioEl = document.getElementById('mainAudio');
 const playerBar = document.getElementById('playerBar');
@@ -109,9 +117,41 @@ btnSpeed.onclick = () => {
 playBtn.onclick = () => {
     state.playUntilPct = null;
     state.playUntilSegmentIndex = null;
+    if (isTtsDisabled()) return;
+    if (isBrowserTtsMode()) {
+        if (!isSpeechSynthesisSupported()) {
+            alert(t('ttsBrowserUnsupported'));
+            return;
+        }
+        toggleArticleSpeech();
+        return;
+    }
     if (audioEl.paused) { audioEl.play(); playBtn.innerHTML = ICONS.pause; }
     else { audioEl.pause(); playBtn.innerHTML = ICONS.play; }
 };
+
+function syncBrowserPlaybackUI(playing, paused) {
+    if (!isBrowserTtsMode()) return;
+    playBtn.innerHTML = (playing && !paused) ? ICONS.pause : ICONS.play;
+}
+
+document.addEventListener('browser-tts-state', (event) => {
+    const detail = event.detail || {};
+    syncBrowserPlaybackUI(!!detail.playing, !!detail.paused);
+});
+
+document.addEventListener('browser-tts-progress', (event) => {
+    if (!isBrowserTtsMode()) return;
+    const pct = Math.max(0, Math.min(1, Number(event.detail?.pct) || 0));
+    progressBar.style.width = `${pct * 100}%`;
+});
+
+export function stopAllPlayback() {
+    audioEl.pause();
+    playBtn.innerHTML = ICONS.play;
+    progressBar.style.width = '0%';
+    stopBrowserSpeech();
+}
 
 function clearPlayUntilState() {
     state.playUntilPct = null;
@@ -129,6 +169,8 @@ function seekFromClientX(clientX) {
 
 let isDraggingProgress = false;
 progressContainer.onpointerdown = (e) => {
+    // Browser speech has no seekable audio timeline; progress mirrors sentences.
+    if (isBrowserTtsMode() || isTtsDisabled()) return;
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     e.preventDefault();
     isDraggingProgress = true;

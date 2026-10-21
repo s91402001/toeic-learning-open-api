@@ -1,6 +1,7 @@
 // Exam model helpers: normalize, render, grade, and explanation merge.
 
 import { fetchGeminiTTS } from './apiProvider.js';
+import { isBrowserTtsMode, isTtsDisabled, speakBrowserText } from './browserTts.js';
 import { t } from './i18n.js';
 import { createId } from './id.js';
 import { pcmToWavBlob } from './audioCodec.js';
@@ -70,7 +71,9 @@ export function renderExamQuestions(container, questions, answers) {
             lastReadingPassage = q.passage;
         }
         const listenBtn = q.section === 'listening'
-            ? `<button class="exam-option exam-listen-btn" data-action="listen" data-id="${escapeHtml(q.id)}">${escapeHtml(t('examPlayListeningAudioBtn'))}</button>`
+            ? (isTtsDisabled()
+                ? `<div class="exam-tts-note">${escapeHtml(t('examTtsDisabledNotice'))}</div>`
+                : `<button class="exam-option exam-listen-btn" data-action="listen" data-id="${escapeHtml(q.id)}">${escapeHtml(t('examPlayListeningAudioBtn'))}</button>`)
             : '';
         const optionsHtml = options.map((opt) => {
             const active = selectedKey && selectedKey === opt.key ? 'active' : '';
@@ -174,6 +177,17 @@ function speakByBrowserFallback(text) {
 }
 
 export async function playListeningQuestion(q, voiceName = 'Kore', prefetchedBase64 = '') {
+    if (isTtsDisabled()) {
+        return { disabled: true, base64: '', message: t('examTtsDisabledNotice') };
+    }
+    if (isBrowserTtsMode()) {
+        const spoken = await speakBrowserText(q.audioText || q.question);
+        return {
+            browserUsed: true,
+            base64: '',
+            message: spoken ? '' : t('ttsBrowserUnsupported')
+        };
+    }
     const key = `${q.id}:${voiceName}`;
     let base64 = prefetchedBase64 || listeningAudioCache.get(key);
     if (base64) listeningAudioCache.set(key, base64);

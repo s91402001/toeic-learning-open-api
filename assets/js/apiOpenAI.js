@@ -1,37 +1,255 @@
-// OpenAI API calls: text generation, TTS, exam generation, and explanations.
+// OpenAI-compatible API calls: text generation, TTS, exam generation, and explanations.
 // Mirrors the interface of apiGemini.js so apiProvider.js can dispatch transparently.
+// The same implementation serves the built-in OpenAI provider and the custom
+// (self-hosted, OpenAI-compatible) provider.
 
 import { state, OPENAI_TEXT_MODEL, OPENAI_TTS_MODEL, OPENAI_VOICE_NAMES } from './state.js';
 import { DB } from './db.js';
 import { getLocaleMeta } from './i18n.js';
 import { normalizeExamOutput } from './examNormalize.js';
 
+const OPENAI_DEFAULT_BASE_URL = 'https://api.openai.com/v1';
+const JSON_MODE_RETRY_STATUSES = [400, 404, 415, 422];
+
+function isCustomProvider() {
+    return state.provider === 'custom';
+}
+
+/**
+ * Accepts a variety of user inputs and returns a canonical base URL without a
+ * trailing slash, e.g.:
+ *   localhost:11434                  -> http://localhost:11434/v1
+ *   http://localhost:11434/v1/       -> http://localhost:11434/v1
+ *   http://host/v1/chat/completions  -> http://host/v1
+ *   http://host/v1/audio/speech      -> http://host/v1
+ * Returns '' when the input cannot be parsed.
+ */
+export function normalizeApiBaseUrl(raw) {
+    let url = String(raw || '').trim();
+    if (!url) return '';
+    url = url.split(/[?#]/)[0].trim();
+    if (!url) return '';
+    if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(url)) {
+        url = `http://${url}`;
+    }
+    let parsed;
+    try {
+        parsed = new URL(url);
+    } catch {
+        return '';
+    }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return '';
+    if (!parsed.hostname) return '';
+    url = `${parsed.protocol}//${parsed.host}${parsed.pathname}`;
+    url = url.replace(/\/+$/, '');
+    url = url.replace(/\/chat\/completions$/i, '');
+    url = url.replace(/\/audio\/speech$/i, '');
+    url = url.replace(/\/models$/i, '');
+    url = url.replace(/\/+$/, '');
+    if (!/\/v\d+(?:beta|alpha)?$/i.test(url)) {
+        url = `${url}/v1`;
+    }
+    return url;
+}
+
+function authHeaders(apiKey) {
+    return apiKey ? { Authorization: `Bearer ${apiKey}` } : {};
+}
+
+function getTextConfig() {
+    if (isCustomProvider()) {
+        return {
+            baseUrl: normalizeApiBaseUrl(state.customApiBaseUrl),
+            apiKey: state.customApiKey,
+            model: getTextModel(),
+            isCustom: true
+        };
+    }
+    return {
+        baseUrl: OPENAI_DEFAULT_BASE_URL,
+        apiKey: state.openaiApiKey,
+        model: getTextModel(),
+        isCustom: false
+    };
+}
+
 function getTextModel() {
     const m = state.selectedModel;
-    return (m && m !== '__custom__') ? m : OPENAI_TEXT_MODEL;
+    return (m && m !== '__custom__') ? m : (isCustomProvider() ? '' : OPENAI_TEXT_MODEL);
+}
+
+function getTtsConfig() {
+    if (isCustomProvider()) {
+        return {
+            baseUrl: normalizeApiBaseUrl(state.customTtsBaseUrl),
+            apiKey: state.customTtsApiKey,
+            model: state.customTtsModel || OPENAI_TTS_MODEL
+        };
+    }
+    return {
+        baseUrl: OPENAI_DEFAULT_BASE_URL,
+        apiKey: state.openaiApiKey,
+        model: OPENAI_TTS_MODEL
+    };
+}
+
+function extractJsonObject(text) {
+    const cleaned = String(text || '').replace(/```json/gi, '').replace(/```/g, '').trim();
+    try {
+        return JSON.parse(cleaned);
+    } catch {
+        const start = cleaned.indexOf('{');
+        const end = cleaned.lastIndexOf('}');
+        if (start >= 0 && end > start) {
+            return JSON.parse(cleaned.slice(start, end + 1));
+        }
+        throw new Error('模型回傳內容不是有效 JSON');
+    }
+}
+
+function readMessageContent(data) {
+    const content = data?.choices?.[0]?.message?.content
+        ?? data?.choices?.[0]?.text
+        ?? data?.message?.content;
+    if (Array.isArray(content)) {
+        return content.map((part) => (typeof part === 'string' ? part : part?.text || '')).join('');
+    }
+    return typeof content === 'string' ? content : '';
 }
 
 async function fetchJsonFromPrompt(prompt) {
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    const cfg = getTextConfig();
+    if (!cfg.baseUrl) throw new Error('請先設定自訂 API Endpoint');
+    if (!cfg.model) throw new Error('請先選擇或輸入模型');
+
+    const baseBody = {
+        model: cfg.model,
+        messages: [{ role: 'user', content: prompt }]
+    };
+    const url = `${cfg.baseUrl}/chat/completions`;
+    const attempts = cfg.isCustom ? [true, false] : [true];
+    let lastError = null;
+
+    for (const useJsonMode of attempts) {
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                ...authHeaders(cfg.apiKey)
+            },
+            body: JSON.stringify(useJsonMode
+                ? { ...baseBody, response_format: { type: 'json_object' } }
+                : baseBody)
+        });
+
+        const rawText = await response.text();
+        let data = null;
+        try { data = rawText ? JSON.parse(rawText) : null; } catch { /* non-JSON error body */ }
+
+        if (!response.ok || data?.error) {
+            const message = data?.error?.message
+                || (rawText ? rawText.slice(0, 300) : '')
+                || `API error (${response.status})`;
+            lastError = new Error(`${message} [${url}]`);
+            if (cfg.isCustom && useJsonMode && JSON_MODE_RETRY_STATUSES.includes(response.status)) {
+                continue;
+            }
+            throw lastError;
+        }
+
+        const text = readMessageContent(data);
+        if (!text) throw new Error('模型回傳內容為空');
+        return extractJsonObject(text);
+    }
+
+    throw lastError || new Error('API 請求失敗');
+}
+
+/** Fetch the model list from any OpenAI-compatible endpoint. */
+export async function fetchModelsFromEndpoint({ baseUrl, apiKey } = {}) {
+    const base = normalizeApiBaseUrl(baseUrl);
+    if (!base) throw new Error('請輸入有效的 API Endpoint');
+    const url = `${base}/models`;
+    const response = await fetch(url, { headers: { ...authHeaders(apiKey) } });
+    const rawText = await response.text();
+    let data = null;
+    try { data = rawText ? JSON.parse(rawText) : null; } catch { /* ignore */ }
+    if (!response.ok || data?.error) {
+        const message = data?.error?.message || (rawText ? rawText.slice(0, 200) : '') || `HTTP ${response.status}`;
+        throw new Error(`${message} [${url}]`);
+    }
+    const rows = Array.isArray(data?.data)
+        ? data.data
+        : Array.isArray(data?.models)
+            ? data.models
+            : Array.isArray(data)
+                ? data
+                : [];
+    const ids = rows
+        .map((row) => (typeof row === 'string' ? row : row?.id || row?.name || row?.model))
+        .filter(Boolean)
+        .map(String);
+    return [...new Set(ids)].sort((a, b) => a.localeCompare(b));
+}
+
+/** Send a tiny chat request to verify endpoint, key and model. */
+export async function testCustomEndpoint({ baseUrl, apiKey, model } = {}) {
+    const base = normalizeApiBaseUrl(baseUrl);
+    if (!base) throw new Error('請輸入有效的 API Endpoint');
+    if (!model) throw new Error('請先選擇或輸入模型');
+    const url = `${base}/chat/completions`;
+    const send = (withMaxTokens) => fetch(url, {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${state.openaiApiKey}`
-        },
+        headers: { 'Content-Type': 'application/json', ...authHeaders(apiKey) },
         body: JSON.stringify({
-            model: getTextModel(),
-            messages: [{ role: 'user', content: prompt }],
-            response_format: { type: 'json_object' }
+            model,
+            messages: [{ role: 'user', content: 'Reply with the single word OK.' }],
+            ...(withMaxTokens ? { max_tokens: 8 } : {})
         })
     });
-    const data = await response.json();
-    if (!response.ok || data?.error) {
-        throw new Error(data?.error?.message || `OpenAI API error (${response.status})`);
+
+    let response = await send(true);
+    if (!response.ok && [400, 422].includes(response.status)) {
+        await response.text();
+        response = await send(false);
     }
-    const text = data?.choices?.[0]?.message?.content;
-    if (!text) throw new Error('OpenAI 回傳內容為空');
-    const cleaned = text.replace(/```json/g, '').replace(/```/g, '').trim();
-    return JSON.parse(cleaned);
+    const rawText = await response.text();
+    let data = null;
+    try { data = rawText ? JSON.parse(rawText) : null; } catch { /* ignore */ }
+    if (!response.ok || data?.error) {
+        const message = data?.error?.message || (rawText ? rawText.slice(0, 200) : '') || `HTTP ${response.status}`;
+        throw new Error(`${message} [${url}]`);
+    }
+    return true;
+}
+
+/** Verify that an external OpenAI-compatible TTS endpoint returns audio. */
+export async function testCustomTtsEndpoint({ baseUrl, apiKey, model } = {}) {
+    const base = normalizeApiBaseUrl(baseUrl);
+    if (!base) throw new Error('請輸入有效的 TTS Endpoint');
+    const url = `${base}/audio/speech`;
+    const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders(apiKey) },
+        body: JSON.stringify({
+            model: model || OPENAI_TTS_MODEL,
+            input: 'Hello, this is a test.',
+            voice: 'alloy',
+            response_format: 'mp3'
+        })
+    });
+    if (!response.ok) {
+        const rawText = await response.text().catch(() => '');
+        let message = rawText.slice(0, 200);
+        try {
+            const data = JSON.parse(rawText);
+            message = data?.error?.message || message;
+        } catch { /* ignore */ }
+        throw new Error(`${message || `HTTP ${response.status}`} [${url}]`);
+    }
+    const buffer = await response.arrayBuffer();
+    if (!buffer.byteLength) throw new Error('TTS 回傳空白音訊');
+    return true;
 }
 
 export async function fetchGeminiText(score, customTopic) {
@@ -157,23 +375,30 @@ function normalizeOpenAIVoice(voiceName) {
 }
 
 export async function fetchGeminiTTS(text, voiceName) {
+    const cfg = getTtsConfig();
+    if (!cfg.baseUrl) throw new Error('請先設定外接 TTS Endpoint');
     const voice = normalizeOpenAIVoice(voiceName);
-    const response = await fetch('https://api.openai.com/v1/audio/speech', {
+    const response = await fetch(`${cfg.baseUrl}/audio/speech`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${state.openaiApiKey}`
+            ...authHeaders(cfg.apiKey)
         },
         body: JSON.stringify({
-            model: OPENAI_TTS_MODEL,
+            model: cfg.model,
             input: text,
             voice,
             response_format: 'mp3'
         })
     });
     if (!response.ok) {
-        const errData = await response.json().catch(() => ({}));
-        const error = new Error(errData?.error?.message || `OpenAI TTS error (${response.status})`);
+        const rawText = await response.text().catch(() => '');
+        let message = rawText.slice(0, 200);
+        try {
+            const data = JSON.parse(rawText);
+            message = data?.error?.message || message;
+        } catch { /* ignore */ }
+        const error = new Error(message || `TTS error (${response.status})`);
         error.code = response.status;
         throw error;
     }

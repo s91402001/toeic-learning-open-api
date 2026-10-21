@@ -85,12 +85,13 @@
 
 文章中**任何單字長按即可查詢**，顯示詞性、音標、中文釋義與例句。找不到的字？一鍵呼叫 **AI 即時解析**。
 
-### 🔀 雙 AI 供應商，自由切換
+### 🔀 多 AI 供應商，自由切換
 
-- 可在設定中選擇 **Google Gemini** 或 **OpenAI** 作為 API 供應商
-- 內建常用模型清單（如 Gemini 2.5 Flash / Pro、GPT-4o mini / GPT-4o），也支援**手動輸入模型名稱**
+- 可在設定中選擇 **Google Gemini**、**OpenAI**，或**自訂 OpenAI 相容 Endpoint**（Ollama、vLLM、LM Studio 等自架 LLM）
+- 內建常用模型清單，也支援**自動取得模型**與**手動輸入模型名稱**
 - 文字生成、語音朗讀、模擬考試皆可使用所選供應商（口說對話目前僅支援 Gemini）
-- 設定中提供「測試 API Key」按鈕，貼上後即可確認是否可用
+- 自訂供應商可選擇三種朗讀方式：外接 TTS 伺服器、瀏覽器內建語音、停用朗讀
+- 設定中提供「測試 API Key／測試 TTS」按鈕，儲存前即可確認連線
 
 ### ☁️ Google 雲端備份
 
@@ -121,13 +122,60 @@
 3. 在 App 設定中選擇供應商為 **OpenAI**，貼上 API Key
 4. 開始學習！
 
+### 方案三：自架 LLM（OpenAI 相容，完全免費）
+
+只要你的伺服器提供 OpenAI 相容的 `/v1/chat/completions`，即可在設定中選擇 **自訂 (OpenAI 相容)** 並填入 Endpoint，例如：
+
+| 服務 | Endpoint 範例 |
+| --- | --- |
+| Ollama | `http://localhost:11434/v1` |
+| LM Studio | `http://localhost:1234/v1` |
+| vLLM | `http://localhost:8000/v1` |
+| LocalAI | `http://localhost:8080/v1` |
+
+設定步驟：
+
+1. 在供應商選擇 **自訂 (OpenAI 相容)**
+2. 填入 Endpoint（只填 `http://localhost:11434` 也會自動補上 `/v1`）
+3. API Key 留空即可（若伺服器有驗證再填）
+4. 按「取得模型」自動讀取 `/v1/models`，或選擇「其他（自訂）」手動輸入模型名稱
+5. 選擇 TTS 模式後儲存
+
+**TTS 模式說明**
+
+| 模式 | 文章朗讀 | 逐句高亮／重播 | 考試聽力 |
+| --- | --- | --- | --- |
+| 外接 TTS 伺服器 | 伺服器產生的 MP3 | ✅（可拖曳進度） | ✅ |
+| 瀏覽器內建語音 | 作業系統語音 | ✅（以句子為單位，進度條不可拖曳） | ✅ |
+| 停用朗讀 | 不顯示播放列 | ❌ | 顯示提示、不播放 |
+
+> 單字與例句的發音按鈕仍使用瀏覽器語音，不受 TTS 模式影響。
+> 外接 TTS 伺服器需接受 OpenAI 語音名稱（`alloy`、`echo`、`fable`、`onyx`、`nova`、`shimmer`）。
+
+**CORS 設定**
+
+自架伺服器必須允許本網頁的來源（Origin），否則瀏覽器會阻擋請求：
+
+```bash
+# Ollama（開發時可先全部放行）
+OLLAMA_ORIGINS='*' ollama serve
+# 或只允許你的網頁來源
+OLLAMA_ORIGINS='http://localhost:8000' ollama serve
+```
+
+- **LM Studio**：在 Developer / Local Server 設定中開啟 CORS
+- **vLLM**：啟動時加上 `--allowed-origins '["*"]'`
+- 若網頁以 **HTTPS** 部署，瀏覽器可能阻擋 `http://` 的區網 IP；`http://localhost` 通常可正常連線，或改在本機開啟本專案
+
+> 自架模型需能穩定輸出 JSON（文章、單字卡與考題皆為 JSON 格式）。建議使用具備足夠上下文與指令遵循能力的模型。
+
 ---
 
 ## 快速開始
 
 1. 將專案部署到靜態網頁空間，或在本機啟動靜態伺服器後開啟 `index.html`
 2. 將網頁加入手機主畫面，享受全螢幕 App 體驗
-3. 選擇 API 供應商（Google Gemini 或 OpenAI），並設定對應的 API Key 及 Model
+3. 選擇 API 供應商（Google Gemini、OpenAI 或自訂 OpenAI 相容 Endpoint），並設定對應的 API Key 及 Model
 4. 開始學習！
 
 ---
@@ -179,7 +227,7 @@ AI 生成文章後自動跳到「學習」頁面：
 
 | 功能      | 說明                           |
 | ------- | ---------------------------- |
-| AI 供應商切換 | 可選 Google Gemini 或 OpenAI，支援自訂模型名稱 |
+| AI 供應商切換 | 可選 Google Gemini、OpenAI 或自架 OpenAI 相容 Endpoint，支援取得模型與自訂模型名稱 |
 | AI 文章生成 | 根據分數與主題即時產出多益情境短文            |
 | AI 語音朗讀 | Gemini / OpenAI 各 6 種聲線、4 段變速、逐句高亮追蹤 |
 | AI 口說對話 | 多益情境即時對話，支援主題預設與自訂主題         |
@@ -211,9 +259,9 @@ AI 生成文章後自動跳到「學習」頁面：
 ## 技術架構
 
 - **純前端單檔架構**（Single HTML File）— 零後端、零依賴
-- **雙 AI 供應商** — 可切換 Google Gemini 或 OpenAI，並支援自訂模型名稱
-- **Google Gemini 2.5 Flash / OpenAI GPT-4o mini** — 文字生成
-- **Google Gemini TTS / OpenAI TTS（tts-1）** — AI 語音合成
+- **多 AI 供應商** — Google Gemini、OpenAI、自架 OpenAI 相容 Endpoint（Ollama / vLLM / LM Studio）
+- **Google Gemini 2.5 Flash / OpenAI GPT-4o mini / 自架模型** — 文字生成
+- **Google Gemini TTS / OpenAI TTS（tts-1）/ 外接 TTS / 瀏覽器語音** — AI 語音合成
 - **IndexedDB** — 本地資料持久化
 - **Google Drive appDataFolder** — 雲端備份
 - **SRS 演算法** — 間隔重複記憶排程

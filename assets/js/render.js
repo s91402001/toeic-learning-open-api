@@ -1,10 +1,11 @@
 // Article rendering, translation/English toggle, vocab cards, phrase cards.
 
-import { state, ICONS, VOICE_OPTIONS } from './state.js';
+import { state, ICONS, VOICE_OPTIONS, OPENAI_VOICE_OPTIONS } from './state.js';
 import { DB } from './db.js';
 import { speakText } from './utils.js';
 import { addLongPressListener, toggleWordSaved, phraseToVocabItem, normalizeWordId } from './vocab.js';
 import { audioEl, playBtn, ensureAudioReady } from './audioPlayer.js';
+import { isBrowserTtsMode, isTtsDisabled, isSpeechSynthesisSupported, speakArticleSegment } from './browserTts.js';
 import { t } from './i18n.js';
 
 function escapeHtml(text) {
@@ -19,8 +20,15 @@ function escapeHtml(text) {
 export function renderContent(data, voiceName) {
     const metaEl = document.getElementById('articleMeta');
     metaEl.innerHTML = '';
-    if (voiceName) {
-        const opt = VOICE_OPTIONS.find(v => v.name === voiceName);
+    const ttsOff = isTtsDisabled();
+    const browserTts = isBrowserTtsMode();
+    if (ttsOff) {
+        metaEl.innerHTML = `<span class="voice-badge">${escapeHtml(t('ttsDisabledBadge'))}</span>`;
+    } else if (browserTts) {
+        metaEl.innerHTML = `<span class="voice-badge">${ICONS.speaker} ${escapeHtml(t('ttsBrowserVoiceBadge'))}</span>`;
+    } else if (voiceName) {
+        const options = state.provider === 'gemini' ? VOICE_OPTIONS : OPENAI_VOICE_OPTIONS;
+        const opt = options.find(v => v.name.toLowerCase() === String(voiceName).toLowerCase());
         const voiceText = opt
             ? `${t(opt.labelKey)} · ${t(opt.descKey)}`
             : voiceName;
@@ -45,31 +53,42 @@ export function renderContent(data, voiceName) {
         const startPct = acc / totalChars;
         const endPct = (acc + seg.en.length) / totalChars;
 
-        const replayBtn = document.createElement('button');
-        replayBtn.className = 'segment-replay-btn';
-        replayBtn.innerHTML = ICONS.miniPlay;
-        replayBtn.onclick = async (e) => {
-            e.stopPropagation();
-            const ready = await ensureAudioReady();
-            if (!ready || !audioEl.duration || Number.isNaN(audioEl.duration)) return;
-            state.playUntilPct = endPct;
-            state.playUntilSegmentIndex = segIndex;
-            audioEl.currentTime = startPct * audioEl.duration;
-            if (state.activeSegmentIndex >= 0 && state.segmentMetadata[state.activeSegmentIndex]) {
-                state.segmentMetadata[state.activeSegmentIndex].element.classList.remove('active');
-            }
-            enDiv.classList.add('active');
-            state.activeSegmentIndex = segIndex;
-            if (audioEl.paused) {
-                try {
-                    await audioEl.play();
-                    playBtn.innerHTML = ICONS.pause;
-                } catch (err) {
-                    console.error('Segment play failed:', err);
+        if (!ttsOff) {
+            const replayBtn = document.createElement('button');
+            replayBtn.className = 'segment-replay-btn';
+            replayBtn.innerHTML = ICONS.miniPlay;
+            replayBtn.onclick = async (e) => {
+                e.stopPropagation();
+                if (isTtsDisabled()) return;
+                if (isBrowserTtsMode()) {
+                    if (!isSpeechSynthesisSupported()) {
+                        alert(t('ttsBrowserUnsupported'));
+                        return;
+                    }
+                    speakArticleSegment(segIndex);
+                    return;
                 }
-            }
-        };
-        enDiv.appendChild(replayBtn);
+                const ready = await ensureAudioReady();
+                if (!ready || !audioEl.duration || Number.isNaN(audioEl.duration)) return;
+                state.playUntilPct = endPct;
+                state.playUntilSegmentIndex = segIndex;
+                audioEl.currentTime = startPct * audioEl.duration;
+                if (state.activeSegmentIndex >= 0 && state.segmentMetadata[state.activeSegmentIndex]) {
+                    state.segmentMetadata[state.activeSegmentIndex].element.classList.remove('active');
+                }
+                enDiv.classList.add('active');
+                state.activeSegmentIndex = segIndex;
+                if (audioEl.paused) {
+                    try {
+                        await audioEl.play();
+                        playBtn.innerHTML = ICONS.pause;
+                    } catch (err) {
+                        console.error('Segment play failed:', err);
+                    }
+                }
+            };
+            enDiv.appendChild(replayBtn);
+        }
 
         const textSpan = document.createElement('span');
         textSpan.className = 'en-text';

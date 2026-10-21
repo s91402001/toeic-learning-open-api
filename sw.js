@@ -1,5 +1,5 @@
 const CACHE_PREFIX = 'toeic-tutor-static';
-const CACHE_NAME = `${CACHE_PREFIX}-v4`;
+const CACHE_NAME = `${CACHE_PREFIX}-v5`;
 
 const STATIC_ASSETS = [
   './manifest.json',
@@ -11,6 +11,7 @@ const STATIC_ASSETS = [
   './assets/js/apiGemini.js',
   './assets/js/apiOpenAI.js',
   './assets/js/apiProvider.js',
+  './assets/js/browserTts.js',
   './assets/js/render.js',
   './assets/js/practiceViews.js',
   './assets/js/vocab.js',
@@ -75,6 +76,14 @@ async function putIfOk(cache, request, response) {
 
 self.addEventListener('fetch', (event) => {
   const url = event.request.url;
+
+  // Never intercept cross-origin traffic: custom OpenAI-compatible endpoints
+  // may live on localhost or a LAN address, and must reach the network directly.
+  try {
+    if (new URL(url).origin !== self.location.origin) return;
+  } catch {
+    return;
+  }
 
   if (
     url.includes('generativelanguage.googleapis.com') ||
