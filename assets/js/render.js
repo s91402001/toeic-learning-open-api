@@ -38,9 +38,19 @@ export function renderContent(data, voiceName) {
     const container = document.getElementById('articleContainer');
     container.innerHTML = '';
     state.segmentMetadata = [];
-    const segments = data.segments || [{ en: data.article, zh: data.translation }];
+    const rawSegments = Array.isArray(data?.segments) ? data.segments : [];
+    const segments = rawSegments
+        .filter((seg) => seg && typeof seg.en === 'string')
+        .map((seg) => ({ ...seg, en: seg.en, zh: typeof seg.zh === 'string' ? seg.zh : '' }));
+    if (!segments.length) {
+        segments.push({
+            en: typeof data?.article === 'string' ? data.article : '',
+            zh: typeof data?.translation === 'string' ? data.translation : ''
+        });
+    }
     let totalChars = 0;
     segments.forEach(seg => { totalChars += seg.en.length; });
+    totalChars = Math.max(totalChars, 1);
     let acc = 0;
 
     segments.forEach((seg, segIndex) => {
@@ -118,7 +128,9 @@ export function renderContent(data, voiceName) {
     /* Vocab cards with save button */
     const vocabContainer = document.getElementById('vocabList');
     vocabContainer.innerHTML = '';
-    const vocabRows = (data.vocabulary || []).slice(0, 8);
+    const vocabRows = (Array.isArray(data.vocabulary) ? data.vocabulary : [])
+        .filter((v) => v && typeof v === 'object')
+        .slice(0, 8);
     const savedWordsPromise = DB.getSavedWords()
         .then((rows) => new Set((rows || []).map((row) => normalizeWordId(row.id))))
         .catch(() => new Set());
@@ -167,9 +179,9 @@ export function renderContent(data, voiceName) {
     const phraseContainer = document.getElementById('phraseList');
     const phraseTitle = document.getElementById('phraseSectionTitle');
     phraseContainer.innerHTML = '';
-    if (data.phrases && data.phrases.length > 0) {
+    if (Array.isArray(data.phrases) && data.phrases.length > 0) {
         phraseTitle.textContent = t('sectionPhrases');
-        data.phrases.forEach(p => {
+        data.phrases.filter((p) => p && typeof p === 'object').forEach(p => {
             const phrase = String(p.phrase || '');
             const meaning = String(p.meaning || '');
             const explanation = String(p.explanation || '');
@@ -202,9 +214,9 @@ export function renderContent(data, voiceName) {
             };
             phraseContainer.appendChild(card);
         });
-    } else if (data.grammar && data.grammar.length > 0) {
+    } else if (Array.isArray(data.grammar) && data.grammar.length > 0) {
         phraseTitle.textContent = t('sectionGrammar');
-        data.grammar.forEach(g => {
+        data.grammar.filter((g) => typeof g === 'string').forEach(g => {
             const row = document.createElement('div');
             row.className = 'grammar-item';
             row.innerHTML = `<span class="grammar-bullet">•</span><span>${escapeHtml(g)}</span>`;

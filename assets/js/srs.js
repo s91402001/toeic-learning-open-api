@@ -63,21 +63,49 @@ function renderSrsQuestion() {
     qArea.innerHTML = ''; oArea.innerHTML = '';
 
     const enLower = toLowerWord(word.en);
-    const safeEn = enLower.replace(/'/g, "\\'");
+    const zhText = String(word.zh || '');
 
     if (q.type === 'en2zh') {
-        qArea.innerHTML = `<div class="srs-question-hint">${t('srsHintEnToZh')}</div><div class="srs-question-word">${enLower} <button class="mini-speaker" onclick="speakText('${safeEn}')">${ICONS.speaker}</button></div>`;
+        const hint = document.createElement('div');
+        hint.className = 'srs-question-hint';
+        hint.textContent = t('srsHintEnToZh');
+        const wordEl = document.createElement('div');
+        wordEl.className = 'srs-question-word';
+        wordEl.appendChild(document.createTextNode(enLower + ' '));
+        const speakBtn = document.createElement('button');
+        speakBtn.type = 'button';
+        speakBtn.className = 'mini-speaker';
+        speakBtn.innerHTML = ICONS.speaker;
+        speakBtn.onclick = () => speakText(enLower);
+        wordEl.appendChild(speakBtn);
+        qArea.append(hint, wordEl);
         setTimeout(() => speakText(enLower), 300);
         const opts = shuffleArray([word.zh, ...getDistractors(word, srsState.allWords, 'zh')]);
         opts.forEach(o => { const b = document.createElement('button'); b.className = 'srs-option'; b.textContent = o; b.onclick = () => handleSrsAnswer(b, o, word.zh, q.type); oArea.appendChild(b); });
     } else if (q.type === 'zh2en') {
-        qArea.innerHTML = `<div class="srs-question-hint">${t('srsHintZhToEn')}</div><div class="srs-question-word">${word.zh}</div>`;
+        const hint = document.createElement('div');
+        hint.className = 'srs-question-hint';
+        hint.textContent = t('srsHintZhToEn');
+        const wordEl = document.createElement('div');
+        wordEl.className = 'srs-question-word';
+        wordEl.textContent = zhText;
+        qArea.append(hint, wordEl);
         const correctEn = toLowerWord(word.en);
         const opts = shuffleArray([correctEn, ...getDistractors(word, srsState.allWords, 'en').map(toLowerWord)]);
         opts.forEach(o => { const b = document.createElement('button'); b.className = 'srs-option'; b.textContent = o; b.onclick = () => handleSrsAnswer(b, o, correctEn, q.type); oArea.appendChild(b); });
     } else if (q.type === 'listen') {
-        qArea.innerHTML = `<div class="srs-question-hint">${t('srsHintListenToZh')}</div><button class="srs-listen-btn" id="srsListenBtn">${ICONS.speaker}</button><div class="srs-reveal-word hidden" id="srsRevealWord"></div>`;
-        document.getElementById('srsListenBtn').onclick = () => speakText(enLower);
+        const hint = document.createElement('div');
+        hint.className = 'srs-question-hint';
+        hint.textContent = t('srsHintListenToZh');
+        const listenBtn = document.createElement('button');
+        listenBtn.className = 'srs-listen-btn';
+        listenBtn.id = 'srsListenBtn';
+        listenBtn.innerHTML = ICONS.speaker;
+        const reveal = document.createElement('div');
+        reveal.className = 'srs-reveal-word hidden';
+        reveal.id = 'srsRevealWord';
+        qArea.append(hint, listenBtn, reveal);
+        listenBtn.onclick = () => speakText(enLower);
         setTimeout(() => speakText(enLower), 300);
         const opts = shuffleArray([word.zh, ...getDistractors(word, srsState.allWords, 'zh')]);
         opts.forEach(o => { const b = document.createElement('button'); b.className = 'srs-option'; b.textContent = o; b.onclick = () => handleSrsAnswer(b, o, word.zh, q.type); oArea.appendChild(b); });
@@ -91,7 +119,34 @@ function renderSrsQuestion() {
         const labels = ['A', 'B', 'C'];
         const correctLabel = labels[choices.findIndex(c => c.isCorrect)];
 
-        qArea.innerHTML = `<div class="srs-question-hint">${t('srsHintListenToEn')}</div><div class="srs-question-word">${word.zh}</div><div class="srs-reveal-word hidden" id="srsRevealWord"></div><div class="srs-listen3-container">${choices.map((c, i) => `<div class="srs-listen3-item"><button class="srs-listen3-btn" data-label="${labels[i]}" data-word="${c.en.replace(/"/g, '&quot;')}">${ICONS.speaker}</button><div class="srs-listen3-label">${labels[i]}</div></div>`).join('')}</div>`;
+        const hint = document.createElement('div');
+        hint.className = 'srs-question-hint';
+        hint.textContent = t('srsHintListenToEn');
+        const wordEl = document.createElement('div');
+        wordEl.className = 'srs-question-word';
+        wordEl.textContent = zhText;
+        const reveal = document.createElement('div');
+        reveal.className = 'srs-reveal-word hidden';
+        reveal.id = 'srsRevealWord';
+        const choicesContainer = document.createElement('div');
+        choicesContainer.className = 'srs-listen3-container';
+
+        choices.forEach((c, i) => {
+            const item = document.createElement('div');
+            item.className = 'srs-listen3-item';
+            const speakBtn = document.createElement('button');
+            speakBtn.className = 'srs-listen3-btn';
+            speakBtn.dataset.label = labels[i];
+            speakBtn.dataset.word = c.en;
+            speakBtn.innerHTML = ICONS.speaker;
+            const labelEl = document.createElement('div');
+            labelEl.className = 'srs-listen3-label';
+            labelEl.textContent = labels[i];
+            item.append(speakBtn, labelEl);
+            choicesContainer.appendChild(item);
+        });
+
+        qArea.append(hint, wordEl, reveal, choicesContainer);
 
         qArea.querySelectorAll('.srs-listen3-btn').forEach(btn => {
             btn.onclick = () => speakText(btn.dataset.word);

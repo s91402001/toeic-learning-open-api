@@ -19,7 +19,7 @@
 <body>
 <main>
   <h1>隱私權政策</h1>
-  <p class="muted">最後更新日期：2026-02-23</p>
+  <p class="muted">最後更新日期：2026-10-22</p>
 
   <p>
     本隱私權政策說明「TOEIC Learning」（以下簡稱「本服務」或「本 App」）在您使用本服務時，
@@ -29,26 +29,28 @@
   <h2>1. 我們蒐集哪些資料</h2>
   <p>本服務可能會在您使用 Google 登入與授權時，取得下列資料：</p>
   <ul>
-    <li><strong>Google 帳戶基本資訊</strong>：例如電子郵件地址（email）、公開的個人資料（如名稱、頭像）。</li>
+    <li><strong>Google 帳戶基本資訊</strong>：例如電子郵件地址（email）與顯示名稱，僅用於在介面上顯示目前連線的帳戶。</li>
     <li><strong>您授權本服務存取的 Google Drive 檔案</strong>：僅限本服務建立的檔案，或您明確選擇/授權給本服務的檔案。</li>
     <li><strong>您在本服務中輸入的學習資料</strong>：例如學習進度、設定、筆記等（內容依本服務功能而定）。</li>
+    <li><strong>麥克風音訊</strong>：僅在您主動開始口說練習時擷取，並即時傳送給 Google Gemini 進行語音對話；本服務不將音訊上傳到自己的伺服器。</li>
   </ul>
 
   <h2>2. Google Drive 權限範圍（重要）</h2>
   <p>
-    本服務使用的 Drive 權限為 <code>https://www.googleapis.com/auth/drive.appdata</code>，
-    並會取得 Google 基本帳戶資訊範圍（<code>userinfo.profile</code>、<code>userinfo.email</code>）以顯示登入帳戶資訊。
+    本服務使用的 Drive 權限僅為 <code>https://www.googleapis.com/auth/drive.appdata</code>。
     這代表：
   </p>
   <ul>
     <li>本服務<strong>只能</strong>存取 Google Drive 的 App Data 隱藏應用資料夾內容（供本 App 備份/還原）。</li>
     <li>本服務<strong>不會</strong>也<strong>無法</strong>讀取或列出您一般 Google Drive 檔案區中的所有檔案。</li>
+    <li>登入狀態只保留在本次瀏覽階段；OAuth access token 不會寫入本機資料庫，重新整理頁面後需重新登入。</li>
   </ul>
 
   <h2>3. 我們如何使用您的資料</h2>
   <ul>
     <li>提供登入與身分識別（例如顯示您目前登入的帳戶）。</li>
     <li>提供資料儲存與同步功能（例如將學習進度保存至您授權的 Google Drive 檔案）。</li>
+    <li>提供 AI 學習功能：您輸入的單字、文章主題、考試內容與麥克風音訊，會傳送給您所選的 AI 供應商（Google Gemini 或 OpenAI，或您自行設定的 OpenAI 相容端點）以產生回覆。</li>
     <li>維護與改善本服務（例如除錯、提升穩定性）。</li>
   </ul>
 
@@ -70,7 +72,11 @@
       您可隨時在 Google Drive 中刪除本服務所建立/使用的檔案。
     </li>
     <li>
-      若本服務在本機（瀏覽器）使用儲存（例如 localStorage），您可透過清除瀏覽器資料刪除。
+      本服務在本機（瀏覽器）使用 <strong>IndexedDB</strong> 儲存學習紀錄、單字本、設定與 API Key；
+      您可透過瀏覽器設定清除網站資料來刪除。API Key 以明文儲存在 IndexedDB 中，請妥善保護您的裝置。
+    </li>
+    <li>
+      Google 登入的 access token 只存在記憶體中，重新整理或關閉頁面即失效，不會保存於 IndexedDB 或 localStorage。
     </li>
   </ul>
 
@@ -87,10 +93,17 @@
   </p>
 
   <h2>8. 第三方服務</h2>
-  <p>
-    本服務可能使用 Google 相關服務（例如 Google OAuth、Google Drive API）。
-    您亦受 Google 的隱私權政策所規範。您可參考 Google 隱私權政策以了解更多。
-  </p>
+  <p>本服務可能將資料傳送給下列第三方，以提供對應功能：</p>
+  <ul>
+    <li><strong>Google OAuth / Google Drive API</strong>：登入與雲端備份（僅 <code>drive.appdata</code> 範圍）。</li>
+    <li><strong>Google Gemini API</strong>：文章、單字、考試生成、語音合成與口說對話（含麥克風音訊）。</li>
+    <li><strong>OpenAI API</strong>：文字生成與語音合成（僅在您選擇 OpenAI 供應商時）。</li>
+    <li><strong>您自行設定的 OpenAI 相容端點</strong>：僅在您選擇自訂供應商時，資料與 API Key 會直接傳送給該端點。</li>
+    <li><strong>LanguageTool</strong>：單字查詢前會將單字文字傳送至 <code>api.languagetool.org</code> 進行拼字檢查。</li>
+    <li><strong>Google Fonts</strong>：載入網頁字型時，您的 IP 與瀏覽器資訊會傳送給 Google。</li>
+  </ul>
+  <p>本服務<strong>不使用 Google Analytics、GTM 或任何第三方流量追蹤碼</strong>。</p>
+  <p>您亦受上述第三方服務的隱私權政策所規範。您可參考各服務的隱私權政策以了解更多。</p>
 
   <h2>9. 本政策的變更</h2>
   <p>

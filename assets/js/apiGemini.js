@@ -23,9 +23,9 @@ function getEffectiveGeminiModel(fallback) {
 
 async function fetchJsonFromPrompt(model, prompt) {
     const effectiveModel = getEffectiveGeminiModel(model);
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${effectiveModel}:generateContent?key=${state.apiKey}`, {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(effectiveModel)}:generateContent`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': state.apiKey },
         body: JSON.stringify({
             contents: [{ parts: [{ text: prompt }] }],
             generationConfig: { responseMimeType: "application/json" }
@@ -206,8 +206,8 @@ function normalizeGeminiVoice(voiceName) {
 
 export async function fetchGeminiTTS(text, voiceName) {
     const voice = normalizeGeminiVoice(voiceName);
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${TTS_MODEL}:generateContent?key=${state.apiKey}`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(TTS_MODEL)}:generateContent`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': state.apiKey },
         body: JSON.stringify({ contents: [{ parts: [{ text }] }], generationConfig: { responseModalities: ["AUDIO"], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } } } } })
     });
     const data = await response.json();

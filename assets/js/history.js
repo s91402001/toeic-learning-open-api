@@ -80,8 +80,9 @@ export async function renderHistory() {
                 : item.type === 'exam'
                     ? t('historyTypeExam')
                     : t('historyTypeArticle');
-            const scoreBadge = item.score ? `<span class="history-score-badge">TOEIC ${item.score}</span>` : '';
-            const voiceBadge = item.voice ? `<span class="history-voice-badge">${item.voice}</span>` : '';
+            const score = Number(item.score) || 0;
+            const scoreBadge = score ? `<span class="history-score-badge">TOEIC ${score}</span>` : '';
+            const voiceBadge = item.voice ? `<span class="history-voice-badge">${escapeHtml(item.voice)}</span>` : '';
             const audioIcon = item.audio ? `<span style="font-size:12px;display:inline-flex;align-items:center;">${ICONS.speaker}</span>` : '';
             const typeBadge = `<span class="history-voice-badge">${typeLabel}</span>`;
             const stageBadge = item.recordStage

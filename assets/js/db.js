@@ -174,5 +174,25 @@ export const DB = {
             tx.oncomplete = () => r();
             tx.onerror = () => j(tx.error);
         });
+    },
+
+    /**
+     * Replace history and savedWords atomically. Used by Drive restore so a
+     * malformed payload can never leave the database half-cleared.
+     */
+    async replaceAll(history, savedWords) {
+        if (!this.db) await this.init();
+        return new Promise((resolve, reject) => {
+            const tx = this.db.transaction(['history', 'savedWords'], 'readwrite');
+            const historyStore = tx.objectStore('history');
+            const wordsStore = tx.objectStore('savedWords');
+            historyStore.clear();
+            (Array.isArray(history) ? history : []).forEach((item) => historyStore.put(item));
+            wordsStore.clear();
+            (Array.isArray(savedWords) ? savedWords : []).forEach((item) => wordsStore.put(item));
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => reject(tx.error);
+            tx.onabort = () => reject(tx.error || new Error('Restore transaction aborted'));
+        });
     }
 };

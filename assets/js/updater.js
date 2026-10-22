@@ -2,6 +2,7 @@
 
 import { t } from './i18n.js';
 import { DB } from './db.js';
+import { escapeHtml } from './utils.js';
 import {
   safeLocalGet,
   safeLocalRemove,
@@ -197,9 +198,9 @@ function showUpdateModal(info) {
   overlay.innerHTML = `
     <div class="update-modal">
       <div class="update-modal-icon">✓</div>
-      <h2 class="update-modal-title">${t('updaterTitle', { version: info.version })}</h2>
+      <h2 class="update-modal-title">${escapeHtml(t('updaterTitle', { version: info.version }))}</h2>
       <ul class="update-modal-changes">
-        ${info.changes.map((c) => `<li>${c}</li>`).join('')}
+        ${info.changes.map((c) => `<li>${escapeHtml(c)}</li>`).join('')}
       </ul>
       <p class="update-modal-notice">${t('updaterNotice')}</p>
       <button class="update-modal-btn" id="btnUpdateAck">${t('updaterAck')}</button>

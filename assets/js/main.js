@@ -1,7 +1,7 @@
 // App entry point: initialisation, tab switching, event binding, module wiring.
 
 import { state, VOICE_OPTIONS, VOICE_NAMES, SPEAKING_ACCENT_OPTIONS, ICONS, GEMINI_TEXT_MODELS, OPENAI_TEXT_MODELS, OPENAI_VOICE_OPTIONS, OPENAI_VOICE_NAMES, DEFAULT_CUSTOM_TTS_MODE } from './state.js';
-import { speakText } from './utils.js';
+import { speakText, escapeHtml } from './utils.js';
 import { DB } from './db.js';
 import { fetchGeminiText, fetchGeminiTTS, fetchExamQuestions, fetchExamWrongAnswerExplanations } from './apiProvider.js';
 import { fetchModelsFromEndpoint, testCustomEndpoint, testCustomTtsEndpoint, normalizeApiBaseUrl } from './apiOpenAI.js';
@@ -10,7 +10,7 @@ import { setupAudio, setPlayerLoading, stopAllPlayback } from './audioPlayer.js'
 import { isBrowserTtsMode, isTtsDisabled, isSpeechSynthesisSupported, getBrowserVoices } from './browserTts.js';
 import { renderContent, toggleEnglish, toggleTranslation, updateToggleButtons } from './render.js';
 import { closeModal, renderVocabTab, setSrsTrigger, setVocabSubtab, handleLookupSearch } from './vocab.js';
-import { startSrsReview, closeSrsReview, finishSrsReview, setOnFinish } from './srs.js';
+import { startSrsReview, closeSrsReview, setOnFinish } from './srs.js';
 import { saveToHistory, savePracticeRecord, renderHistory, loadSession, loadLastSession, clearHistory, setDeps as setHistoryDeps } from './history.js';
 import { registerServiceWorkerUpdater, scheduleUpdateNoticeAfterAppReady } from './updater.js';
 import { initInstallPrompt } from './installPrompt.js';
@@ -44,10 +44,7 @@ setHistoryDeps({
 });
 DriveSync.setCallbacks({ renderHistory, loadLastSession, renderVocabTab });
 
-/* ── Expose minimal globals needed by dynamic innerHTML onclick ── */
-window.speakText = speakText;
-window.finishSrsReview = finishSrsReview;
-window.DriveSync = DriveSync;
+/* ── Cross-module wiring ── */
 document.addEventListener('player-loading-changed', updatePlayerBarVisibility);
 
 const emptyStateEl = document.getElementById('emptyState');
@@ -122,8 +119,6 @@ function switchTab(tabName) {
     if (tabName === 'vocab') renderVocabTab();
     updatePlayerBarVisibility();
 }
-window.switchTab = switchTab;
-
 /* ── Practice mode switching ── */
 function setPracticeMode(mode) {
     if (state.practiceMode === 'speaking' && mode !== 'speaking' && state.speakingState.isConnected) {
@@ -555,6 +550,8 @@ async function saveApiKey() {
             alert(t('settingsTtsEndpointRequired'));
             return;
         }
+        if (!confirmEndpointSecurity(rawCustomUrl, t('settingsCustomEndpointLabel'))) return;
+        if (ttsModeVal === 'external' && !confirmEndpointSecurity(ttsBaseVal, t('settingsTtsEndpointLabel'))) return;
     }
 
     state.apiKey = geminiVal;
@@ -869,11 +866,13 @@ if (apiKeyInput) {
     });
 }
 if (btnClearApiKey) {
-    btnClearApiKey.onclick = () => {
+    btnClearApiKey.onclick = async () => {
         if (apiKeyInput) {
             apiKeyInput.value = '';
             apiKeyInput.focus();
         }
+        state.apiKey = '';
+        await DB.setSetting('gemini_api_key', null);
         btnClearApiKey.classList.add('hidden');
     };
 }
@@ -885,11 +884,13 @@ if (openaiApiKeyInput) {
     });
 }
 if (btnClearOpenAIApiKey) {
-    btnClearOpenAIApiKey.onclick = () => {
+    btnClearOpenAIApiKey.onclick = async () => {
         if (openaiApiKeyInput) {
             openaiApiKeyInput.value = '';
             openaiApiKeyInput.focus();
         }
+        state.openaiApiKey = '';
+        await DB.setSetting('openai_api_key', null);
         btnClearOpenAIApiKey.classList.add('hidden');
     };
 }
@@ -925,6 +926,35 @@ function showTtsTestResult(ok, message) {
     el.textContent = message;
 }
 
+function isLocalOrPrivateHost(hostname) {
+    const host = String(hostname || '').toLowerCase().replace(/^\[|\]$/g, '');
+    if (!host) return false;
+    if (host === 'localhost' || host.endsWith('.localhost')) return true;
+    if (host === '::1') return true;
+    if (/^f[cd][0-9a-f]{2}:/i.test(host)) return true;
+    if (/^fe80:/i.test(host)) return true;
+    if (/^127\./.test(host)) return true;
+    if (/^10\./.test(host)) return true;
+    if (/^192\.168\./.test(host)) return true;
+    if (/^172\.(1[6-9]|2\d|3[01])\./.test(host)) return true;
+    if (/^169\.254\./.test(host)) return true;
+    return false;
+}
+
+/**
+ * Warn before sending an API key to a non-HTTPS, non-local endpoint.
+ * Returns false when the user explicitly cancels.
+ */
+function confirmEndpointSecurity(rawUrl, label) {
+    const base = normalizeApiBaseUrl(rawUrl);
+    if (!base) return true;
+    let parsed;
+    try { parsed = new URL(base); } catch { return true; }
+    if (parsed.protocol === 'https:') return true;
+    if (isLocalOrPrivateHost(parsed.hostname)) return true;
+    return window.confirm(t('settingsInsecureEndpointConfirm', { label, host: parsed.host }));
+}
+
 async function fetchCustomModels() {
     const btn = document.getElementById('btnFetchCustomModels');
     const baseUrl = normalizeApiBaseUrl(document.getElementById('customApiBaseUrlInput')?.value || '');
@@ -933,6 +963,7 @@ async function fetchCustomModels() {
         showModelsStatus(false, t('customEndpointRequired'));
         return;
     }
+    if (!confirmEndpointSecurity(baseUrl, t('settingsCustomEndpointLabel'))) return;
     const original = btn ? btn.textContent : '';
     if (btn) {
         btn.disabled = true;
@@ -964,6 +995,7 @@ async function testCustomTts() {
         showTtsTestResult(false, t('settingsTtsEndpointRequired'));
         return;
     }
+    if (!confirmEndpointSecurity(baseUrl, t('settingsTtsEndpointLabel'))) return;
     if (btn) {
         btn.disabled = true;
         btn.textContent = t('settingsTestTtsTesting');
@@ -989,6 +1021,8 @@ async function testApiKey() {
     const customKey = document.getElementById('customApiKeyInput')?.value.trim() || '';
     const customUrl = document.getElementById('customApiBaseUrlInput')?.value.trim() || '';
     const model = readModelFromForm();
+
+    if (provider === 'custom' && !confirmEndpointSecurity(customUrl, t('settingsCustomEndpointLabel'))) return;
 
     btnTestApiKey.disabled = true;
     btnTestApiKey.textContent = t('settingsTestTesting');
@@ -1021,9 +1055,9 @@ async function testApiKey() {
             showTestResult(true, t('settingsTestSuccess'));
         } else {
             const testModel = model || 'gemini-2.5-flash';
-            const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${testModel}:generateContent?key=${key}`, {
+            const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(testModel)}:generateContent`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
                 body: JSON.stringify({ contents: [{ parts: [{ text: 'Hi' }] }] })
             });
             const d = await res.json().catch(() => ({}));
@@ -1248,26 +1282,37 @@ function resolveResultChoiceLabel(item, type) {
 function renderExamResult() {
     const result = state.examState.result;
     if (!result) return;
-    const by = result.bySection;
+    const by = result.bySection || {};
+    const sectionStat = (key) => ({
+        correct: Number(by?.[key]?.correct) || 0,
+        total: Number(by?.[key]?.total) || 0
+    });
+    const listening = sectionStat('listening');
+    const reading = sectionStat('reading');
+    const vocabulary = sectionStat('vocabulary');
+    const grammar = sectionStat('grammar');
     const resultHtml = `
         <div class="exam-result">
-            <div><strong>${t('examTotalScoreLabel')}:</strong> ${result.correct} / ${result.total}</div>
-            <div>${t('examSectionSummary', { lCorrect: by.listening.correct, lTotal: by.listening.total, rCorrect: by.reading.correct, rTotal: by.reading.total, vCorrect: by.vocabulary.correct, vTotal: by.vocabulary.total, gCorrect: by.grammar.correct, gTotal: by.grammar.total })}</div>
-            <div>${t('examWrongCountLabel', { count: result.wrongCount })}</div>
+            <div><strong>${t('examTotalScoreLabel')}:</strong> ${Number(result.correct) || 0} / ${Number(result.total) || 0}</div>
+            <div>${escapeHtml(t('examSectionSummary', { lCorrect: listening.correct, lTotal: listening.total, rCorrect: reading.correct, rTotal: reading.total, vCorrect: vocabulary.correct, vTotal: vocabulary.total, gCorrect: grammar.correct, gTotal: grammar.total }))}</div>
+            <div>${escapeHtml(t('examWrongCountLabel', { count: Number(result.wrongCount) || 0 }))}</div>
         </div>
     `;
-    const wrongHtml = result.wrongItems.map((item) => {
-        const explanation = state.examState.explanations?.find(x => x.id === item.id);
+    const wrongItems = Array.isArray(result.wrongItems) ? result.wrongItems : [];
+    const wrongHtml = wrongItems.filter((item) => item && typeof item === 'object').map((item) => {
+        const explanation = Array.isArray(state.examState.explanations)
+            ? state.examState.explanations.find(x => x && x.id === item.id)
+            : null;
         const hasCachedAudio = !!state.examState.listeningAudioByQuestion?.[item.id];
         const reviewAudioBtn = hasCachedAudio
-            ? `<button class="mini-speaker exam-review-audio-btn" data-action="review-listen" data-id="${item.id}" title="${t('examReviewAudioTitle')}">${ICONS.speaker}</button>`
+            ? `<button class="mini-speaker exam-review-audio-btn" data-action="review-listen" data-id="${escapeHtml(item.id)}" title="${escapeHtml(t('examReviewAudioTitle'))}">${ICONS.speaker}</button>`
             : '';
         return `
             <div class="exam-wrong-item">
-                <div><strong>${item.section}</strong> - ${item.question}${reviewAudioBtn}</div>
-                <div>${t('examYourAnswer')}: ${resolveResultChoiceLabel(item, 'selected') || t('examNoAnswer')}</div>
-                <div>${t('examCorrectAnswer')}: ${resolveResultChoiceLabel(item, 'answer') || t('examNoAnswer')}</div>
-                ${explanation ? `<div>${t('examWhyWrong')}: ${explanation.whyWrong}</div><div>${t('examKeyPoint')}: ${explanation.keyPoint}</div><div>${t('examTrap')}: ${explanation.trap}</div>` : ''}
+                <div><strong>${escapeHtml(item.section)}</strong> - ${escapeHtml(item.question)}${reviewAudioBtn}</div>
+                <div>${t('examYourAnswer')}: ${escapeHtml(resolveResultChoiceLabel(item, 'selected') || t('examNoAnswer'))}</div>
+                <div>${t('examCorrectAnswer')}: ${escapeHtml(resolveResultChoiceLabel(item, 'answer') || t('examNoAnswer'))}</div>
+                ${explanation ? `<div>${t('examWhyWrong')}: ${escapeHtml(explanation.whyWrong)}</div><div>${t('examKeyPoint')}: ${escapeHtml(explanation.keyPoint)}</div><div>${t('examTrap')}: ${escapeHtml(explanation.trap)}</div>` : ''}
             </div>
         `;
     }).join('');
@@ -1521,11 +1566,7 @@ GENERATE_BTN.onclick = async () => {
         viewShowExamConfig(setLearnRuntimeMode, switchTab);
 
         DriveSync.init();
-        const cloudEnabled = await DB.getSetting('cloud_sync_enabled');
-        if (cloudEnabled) {
-            await DriveSync.silentLogin();
-            DriveSync.updateUI();
-        }
+        DriveSync.updateUI();
         initPostLocalePrompts();
     } catch (e) { logError('Init failed', e); keyModal.classList.add('active'); }
     finally {

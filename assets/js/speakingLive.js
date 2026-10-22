@@ -1,6 +1,6 @@
 // Live speaking session over Gemini native audio model (SDK mode).
 
-import { GoogleGenAI, Modality } from 'https://esm.run/@google/genai';
+import { GoogleGenAI, Modality } from 'https://esm.run/@google/genai@2.30.0';
 import { LIVE_AUDIO_MODEL, state, VOICE_NAMES } from './state.js';
 import { t } from './i18n.js';
 import { SPEAKING_LEVELS, getSpeakingLevelByScore } from './speakingLevel.js';

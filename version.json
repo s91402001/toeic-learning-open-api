@@ -1,11 +1,12 @@
 {
-  "version": "1.6.0",
+  "version": "1.7.0",
   "date": "2026-10-22",
   "changes": [
-    "新增「自訂 (OpenAI 相容)」供應商，可連接 Ollama、vLLM、LM Studio 等自架 LLM",
-    "支援自動取得模型清單與手動輸入模型名稱",
-    "自訂供應商提供三種 TTS 模式：外接 TTS 伺服器、瀏覽器內建語音、停用朗讀",
-    "各供應商會記住各自選擇的模型",
-    "跨來源 API 請求不再經由 Service Worker 快取"
+    "安全性更新：移除 Google Analytics / GTM，改以 Content-Security-Policy 限制可執行腳本來源",
+    "安全性更新：Google Drive 改為每次手動登入，OAuth access token 只保留在記憶體",
+    "安全性更新：修補 AI 回覆與備份還原資料的 HTML 注入風險",
+    "安全性更新：Gemini API Key 改用請求標頭傳送，不再出現在 URL",
+    "雲端還原改為先完整驗證再以單一交易匯入，避免損壞資料",
+    "自訂 OpenAI 相容 Endpoint 新增非 HTTPS 連線警告"
   ]
 }

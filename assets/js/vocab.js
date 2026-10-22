@@ -470,7 +470,9 @@ export async function renderVocabTab() {
         const isOverdue = w.nextReview <= Date.now();
         const dateStr = isOverdue ? t('vocabReadyForReview') : new Date(w.nextReview).toLocaleDateString();
         const displayEn = normalizeWordId(w.en);
-        card.innerHTML = `<div class="saved-word-info"><div class="saved-word-top"><span class="saved-word-en">${displayEn}</span>${w.pos ? `<span class="vocab-pos">${w.pos}</span>` : ''}<span class="srs-badge srs-badge-${w.level}">Lv.${w.level}</span></div><div class="saved-word-zh">${w.zh}</div><div class="saved-word-next">${isOverdue ? '⏰ ' : ''}${t('vocabNextReviewLabel', { date: dateStr })}</div></div><div class="saved-word-actions"><button class="saved-word-speak">${ICONS.speaker}</button><button class="saved-word-delete">${ICONS.close}</button></div>`;
+        const level = Math.min(Math.max(Number(w.level) || 0, 0), SRS_INTERVALS.length - 1);
+        const posHtml = w.pos ? `<span class="vocab-pos">${escapeHtml(w.pos)}</span>` : '';
+        card.innerHTML = `<div class="saved-word-info"><div class="saved-word-top"><span class="saved-word-en">${escapeHtml(displayEn)}</span>${posHtml}<span class="srs-badge srs-badge-${level}">Lv.${level}</span></div><div class="saved-word-zh">${escapeHtml(w.zh)}</div><div class="saved-word-next">${isOverdue ? '⏰ ' : ''}${escapeHtml(t('vocabNextReviewLabel', { date: dateStr }))}</div></div><div class="saved-word-actions"><button class="saved-word-speak">${ICONS.speaker}</button><button class="saved-word-delete">${ICONS.close}</button></div>`;
         card.querySelector('.saved-word-speak').onclick = () => speakText(displayEn);
         card.querySelector('.saved-word-delete').onclick = async () => {
             if (confirm(t('vocabDeleteConfirm', { word: displayEn }))) {

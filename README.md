@@ -97,13 +97,15 @@
 
 登入 Google 帳號即可將學習紀錄、單字本備份到 Google Drive，支援**立即備份 / 從雲端還原 / 登出**（不包含 API Key）。
 
+> 基於安全考量，Google 登入為**每次手動登入**：OAuth access token 只保留在記憶體，重新整理頁面後即失效，不會寫入 IndexedDB 或 localStorage。
+
 ---
 
 ## 免費使用怎麼做到的？
 
 本專案支援 **Google Gemini** 與 **OpenAI** 兩種 AI 供應商，兩者都有免費使用的方式，你只需要自行申請 API Key 並填入設定即可開始學習。
 
-> API Key 僅儲存在你的裝置本地（IndexedDB），不會備份到 Google Drive。
+> API Key 僅儲存在你的裝置本地（IndexedDB，明文），不會備份到 Google Drive。若裝置與他人共用，請在使用後清除 Key；若懷疑外洩，請立即到供應商後台撤銷並重新申請。
 
 ### 方案一：Google Gemini（完全免費）
 
@@ -258,7 +260,7 @@ AI 生成文章後自動跳到「學習」頁面：
 
 ## 技術架構
 
-- **純前端單檔架構**（Single HTML File）— 零後端、零依賴
+- **純前端、無後端架構** — 不需伺服器，API Key 由使用者自行保管
 - **多 AI 供應商** — Google Gemini、OpenAI、自架 OpenAI 相容 Endpoint（Ollama / vLLM / LM Studio）
 - **Google Gemini 2.5 Flash / OpenAI GPT-4o mini / 自架模型** — 文字生成
 - **Google Gemini TTS / OpenAI TTS（tts-1）/ 外接 TTS / 瀏覽器語音** — AI 語音合成
@@ -280,8 +282,11 @@ AI 生成文章後自動跳到「學習」頁面：
 
 ## 給開發者的提醒
 
-- 本網站使用 **Google Analytics (GA)** 蒐集匿名流量數據，以協助了解使用者行為。若你 fork 或重新部署本專案，請記得**替換或移除** `index.html` 中的 GA 追蹤碼。
-- 本專案使用 **Google Drive API** 進行登入與雲端備份功能，若你要自行部署，請記得在 [Google Cloud Console](https://console.cloud.google.com/) 建立自己的 GCP 專案並替換 OAuth Client ID。
+- 本專案**不使用 Google Analytics、GTM 或任何第三方流量追蹤碼**；若你 fork 後要加入分析服務，請放在獨立網域，不要與持有 API Key 的 App 同源。
+- 本專案使用 **Google Drive API** 進行登入與雲端備份功能，若你要自行部署，請記得在 [Google Cloud Console](https://console.cloud.google.com/) 建立自己的 GCP 專案並替換 OAuth Client ID，將「已授權 JavaScript 來源」限制為你的正式網域，並在 OAuth 同意畫面加入 `drive.appdata` 範圍。
+- 建議在 Google AI Studio／OpenAI 為 API Key 設定 API 限制、每日配額與預算上限，降低外洩時的損失。
+- 本專案以 `Content-Security-Policy` 限制可執行的腳本來源；若要新增外部 CDN，請同步更新 `index.html` 的 CSP 與 `sw.js` 的靜態資源清單。
+- 安全性政策、殘餘風險與部署檢查清單請見 [`SECURITY.md`](./SECURITY.md)。
 
 ---
 

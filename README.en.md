@@ -95,6 +95,8 @@ Long-press **any word** in a passage to see part of speech, IPA, Chinese meaning
 
 Sign in with Google to back up your learning records and vocabulary book to Google Drive. Supports **Back Up Now / Restore from Cloud / Sign Out** (API key excluded).
 
+> For security, Google sign-in is **manual every time**: the OAuth access token stays in memory and is lost on reload. It is never written to IndexedDB or localStorage.
+
 ---
 
 ## How can I use it for free?
@@ -105,7 +107,7 @@ This project supports both **Google Gemini** and **OpenAI** as AI providers. Bot
 
 The [Google Gemini API](https://aistudio.google.com/app/apikey) offers a **free daily quota** that is more than enough for personal learning.
 
-> Your API key is stored only on your local device (IndexedDB) and is not backed up to Google Drive.
+> Your API key is stored only on your local device (IndexedDB, plaintext) and is not backed up to Google Drive. On a shared device, clear the key when you are done. If you suspect a leak, revoke it in the provider console and create a new one.
 
 1. Go to [Google AI Studio](https://aistudio.google.com/app/apikey) and get a free API key with your Google account
 2. In the app settings, select **Gemini** as your provider and paste the key
@@ -254,7 +256,7 @@ After signing in on the settings page, you can use **Back Up Now / Restore from 
 
 ## Tech Stack
 
-- **Single-file frontend architecture** (Single HTML File) - zero backend, zero dependencies
+- **Static frontend, no backend** - API keys stay with the user
 - **Multiple AI providers** - Google Gemini, OpenAI, and self-hosted OpenAI-compatible endpoints (Ollama / vLLM / LM Studio)
 - **Google Gemini 2.5 Flash / OpenAI GPT-4o mini / self-hosted models** - text generation
 - **Google Gemini TTS / OpenAI TTS (tts-1) / external TTS / browser speech** - AI speech synthesis
@@ -276,8 +278,11 @@ If this tool helps your learning, feel free to buy me a coffee so I can keep bui
 
 ## Notes for Developers
 
-- This site uses **Google Analytics (GA)** to collect anonymous traffic data. If you fork or redeploy this project, remember to **replace or remove** the GA tracking code in `index.html`.
-- This project uses **Google Drive API** for sign-in and cloud backup. If you deploy your own version, create your own GCP project in [Google Cloud Console](https://console.cloud.google.com/) and replace the OAuth Client ID.
+- This project does **not** use Google Analytics, GTM, or any third-party traffic tracking. If you fork it and add analytics, host it on a separate origin from the app that holds API keys.
+- This project uses **Google Drive API** for sign-in and cloud backup. If you deploy your own version, create your own GCP project in [Google Cloud Console](https://console.cloud.google.com/), replace the OAuth Client ID, restrict Authorized JavaScript origins to your production domain, and add the `drive.appdata` scope to the OAuth consent screen.
+- Set API restrictions, daily quotas, and spending limits on your Gemini/OpenAI keys to reduce the impact of a leak.
+- The app ships a `Content-Security-Policy` that restricts script sources. If you add an external CDN, update the CSP in `index.html` and the asset list in `sw.js` together.
+- See [`SECURITY.md`](./SECURITY.md) for the security policy, residual risks, and deployment checklist.
 
 ---
 
